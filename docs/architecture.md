@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This document describes the proposed target architecture. Phase 1 implements only the FastAPI application foundation and `GET /api/health`; components marked as planned should guide later phases rather than be treated as deployed functionality.
+This document describes both the implemented Phase 2 backend and the proposed target architecture. Phase 2 implements the FastAPI foundation, SQLAlchemy persistence, Alembic migrations, a public destination catalog, idempotent booking request submission, and an internal booking workflow. Components marked as planned should guide later phases rather than be treated as deployed functionality.
 
 The architecture favors a modular monolith for the hackathon: one deployable backend with explicit internal boundaries. This keeps deployment and operations simple while allowing high-volume or integration-heavy modules to be extracted later if needed.
 
@@ -15,7 +15,9 @@ The architecture favors a modular monolith for the hackathon: one deployable bac
 - Make inbound callbacks idempotent and outbound notifications observable.
 - Keep USSD interactions short and responsive while allowing longer-running AI work on web and SMS channels.
 
-## Proposed components
+## System components
+
+The API, booking service, PostgreSQL persistence boundary, destination catalog, and internal workflow are implemented. The web clients, concierge, notifications, provider adapters, and Africa's Talking paths in the following target diagram remain planned.
 
 ```mermaid
 flowchart LR
@@ -60,12 +62,16 @@ flowchart LR
 
 ### Initial data domains
 
-- Travellers and their communication preferences
-- Operators, destinations, activities, and accommodation listings
-- Conversations and messages with channel metadata
-- Booking requests, offers, status history, and traveller consent
-- Notification attempts and provider message identifiers
-- Integration events and idempotency keys
+- **Implemented:** operators, curated destinations, booking requests, traveller contact preferences and consent, booking status history, and idempotency keys.
+- **Planned:** activities, accommodation inventory, offers, conversations, messages, notifications, provider identifiers, and general integration events.
+
+## Persistence and migrations
+
+SQLAlchemy 2.x models define operators, destinations, booking requests, and booking status history. Production configuration uses a PostgreSQL URL supplied through `DATABASE_URL`; FastAPI creates request-scoped sessions and disposes its connection pool during shutdown.
+
+Alembic owns schema changes. The initial revision creates relationships, uniqueness rules, check constraints, indexes, and timestamps. Application startup does not create tables implicitly. Operators must run `alembic upgrade head` before serving traffic.
+
+The explicit destination seed operation inserts Serengeti National Park, Ngorongoro Conservation Area, Mount Kilimanjaro, Zanzibar, and Tarangire National Park. It is idempotent by destination slug and contains no live availability, pricing, or partnership data.
 
 ## API boundaries
 
@@ -74,9 +80,10 @@ All JSON responses will use documented schemas. Business rules belong in service
 | Boundary | Proposed endpoint | Responsibility | Access |
 | --- | --- | --- | --- |
 | Platform health | `GET /api/health` | Report that the API process is available | Public; implemented |
+| Destination catalog | `GET /api/v1/destinations` | Search, filter, and paginate active curated destinations | Public; implemented |
+| Destination detail | `GET /api/v1/destinations/{id}` | Return one active curated destination | Public; implemented |
+| Booking submission | `POST /api/v1/bookings` | Validate and create an idempotent pending request | Public submission; implemented |
 | Concierge | `POST /api/v1/conversations/{id}/messages` | Accept a traveller message and return or queue an assistant response | Authenticated session; planned |
-| Destinations | `GET /api/v1/destinations` | Search curated tourism inventory | Public, rate-limited; planned |
-| Booking commands | `POST /api/v1/bookings` | Create a validated booking request with an idempotency key | Authenticated session; planned |
 | Booking queries | `GET /api/v1/bookings/{id}` | Return the request and its permitted status history | Traveller or operator authorization; planned |
 | Operator actions | `POST /api/v1/bookings/{id}/offers` | Record availability and an operator offer | Operator authorization; planned |
 | SMS callback | `POST /api/webhooks/africas-talking/sms` | Normalize an inbound SMS or delivery update | Provider callback controls; planned |
@@ -87,6 +94,8 @@ External callbacks must be rate-limited, validated against provider-supported co
 ## Booking workflow
 
 The booking service, not the LLM, owns the workflow and allowed transitions.
+
+Public submission creates a request directly in `pending_availability`; it never creates a confirmed booking. The internal workflow implements the remaining state edges shown below.
 
 ```mermaid
 stateDiagram-v2
@@ -116,6 +125,15 @@ stateDiagram-v2
 Commands must reject invalid state changes, duplicate callbacks, expired quotes, and unauthorized access. PostgreSQL transactions should update the booking and its status history atomically.
 
 Phase 2 implements these rules as an internal workflow service with row locking and resource-scoped authorization facts. Booking detail and status-management endpoints remain intentionally unavailable until authenticated customer and operator identities can be securely bound to the corresponding booking or operator. Public callers can submit a request, but they cannot inspect it or advance its status.
+
+## Phase 2 security and privacy boundaries
+
+- Booking submission responses omit names, email addresses, phone numbers, consent records, and special requests.
+- The public API exposes no booking list, detail, audit-history, operator-decision, or status-change endpoint.
+- A client-supplied idempotency key can replay only the same normalized booking input; conflicting reuse is rejected.
+- Destination identifiers must resolve to active catalog records before a booking is accepted.
+- Customer and operator workflow actors must carry resource-scoped authorization facts established by a future authentication layer.
+- Operator-only transitions include quoting, rejection, and confirmation. The LLM and unauthenticated callers cannot confirm bookings.
 
 ## Africa's Talking integration
 
