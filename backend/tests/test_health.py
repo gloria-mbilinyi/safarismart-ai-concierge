@@ -28,3 +28,15 @@ def test_health_endpoint_uses_configured_api_prefix() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_health_endpoint_supports_root_api_prefix() -> None:
+    """A root prefix should be normalized to FastAPI's empty router prefix."""
+
+    settings = Settings(app_env="test", api_v1_prefix="/", _env_file=None)
+
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

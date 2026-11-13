@@ -33,8 +33,7 @@ class Settings(BaseSettings):
         if not value.startswith("/"):
             raise ValueError("API_V1_PREFIX must start with '/'")
 
-        normalized = value.rstrip("/")
-        return normalized or "/"
+        return value.rstrip("/")
 
 
 @lru_cache
