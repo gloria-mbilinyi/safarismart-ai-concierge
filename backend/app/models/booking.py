@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -130,6 +130,7 @@ class BookingStatusHistory(Base):
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
+        default=lambda: datetime.now(UTC),
         server_default=func.now(),
     )
 

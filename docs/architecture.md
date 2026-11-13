@@ -115,6 +115,8 @@ stateDiagram-v2
 
 Commands must reject invalid state changes, duplicate callbacks, expired quotes, and unauthorized access. PostgreSQL transactions should update the booking and its status history atomically.
 
+Phase 2 implements these rules as an internal workflow service with row locking and resource-scoped authorization facts. Booking detail and status-management endpoints remain intentionally unavailable until authenticated customer and operator identities can be securely bound to the corresponding booking or operator. Public callers can submit a request, but they cannot inspect it or advance its status.
+
 ## Africa's Talking integration
 
 ### SMS flow
