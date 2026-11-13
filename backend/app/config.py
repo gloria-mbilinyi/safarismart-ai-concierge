@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "staging", "production"] = "development"
     app_debug: bool = False
     api_v1_prefix: str = "/api"
+    database_url: str = "postgresql+psycopg://localhost/safarismart"
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

@@ -8,12 +8,15 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.pytest_tmp/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
 .venv/
 venv/
+*.db
+*.sqlite
 
 # JavaScript and TypeScript
 node_modules/
