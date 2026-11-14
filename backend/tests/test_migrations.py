@@ -18,6 +18,7 @@ DOMAIN_TABLES = {
     "destinations",
     "booking_requests",
     "booking_status_history",
+    "operator_users",
 }
 
 
