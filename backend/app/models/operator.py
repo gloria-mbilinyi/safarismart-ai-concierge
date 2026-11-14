@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.models.booking import BookingRequest
     from app.models.destination import Destination
     from app.models.operator_user import OperatorUser
+    from app.models.quote import BookingQuote
 
 
 class Operator(TimestampMixin, Base):
@@ -48,3 +49,4 @@ class Operator(TimestampMixin, Base):
         back_populates="operator",
         cascade="all, delete-orphan",
     )
+    quotes: Mapped[list[BookingQuote]] = relationship(back_populates="operator")

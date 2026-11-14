@@ -5,6 +5,7 @@ import os
 
 from app.config import get_settings
 from app.db.session import Database
+from app.services.demo_assignment import assign_demo_destinations
 from app.services.operator_bootstrap import bootstrap_demo_operator
 
 
@@ -18,6 +19,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--operator-slug", required=True)
     parser.add_argument("--email", required=True)
     parser.add_argument("--full-name", required=True)
+    parser.add_argument(
+        "--assign-demo-destinations",
+        action="store_true",
+        help="Assign unassigned curated destinations to this synthetic operator.",
+    )
     parser.add_argument(
         "--password-env",
         default="SAFARISMART_BOOTSTRAP_PASSWORD",
@@ -51,11 +57,17 @@ def main() -> None:
                 user_full_name=args.full_name,
                 password=password,
             )
+            assigned_count = (
+                assign_demo_destinations(session, operator)
+                if args.assign_demo_destinations
+                else 0
+            )
     finally:
         database.dispose()
 
     print(
-        f"Created synthetic operator '{operator.slug}' with user '{user.email}'."
+        f"Created synthetic operator '{operator.slug}' with user '{user.email}' "
+        f"and assigned {assigned_count} demo destination(s)."
     )
 
 

@@ -28,6 +28,7 @@ from app.models.mixins import TimestampMixin
 if TYPE_CHECKING:
     from app.models.destination import Destination
     from app.models.operator import Operator
+    from app.models.quote import BookingQuote
 
 
 BOOKING_STATUSES = ", ".join(f"'{status.value}'" for status in BookingStatus)
@@ -92,6 +93,11 @@ class BookingRequest(TimestampMixin, Base):
         back_populates="booking_request",
         cascade="all, delete-orphan",
         order_by="BookingStatusHistory.occurred_at",
+    )
+    quote: Mapped[BookingQuote | None] = relationship(
+        back_populates="booking_request",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
 

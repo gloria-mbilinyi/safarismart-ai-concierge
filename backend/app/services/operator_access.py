@@ -24,6 +24,7 @@ def get_operator_booking(
         select(BookingRequest)
         .options(
             joinedload(BookingRequest.destination),
+            joinedload(BookingRequest.quote),
             joinedload(BookingRequest.status_history),
         )
         .where(

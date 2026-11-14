@@ -103,6 +103,7 @@ def transition_booking(
     actor: WorkflowActor,
     *,
     reason: str | None = None,
+    commit: bool = True,
 ) -> BookingRequest:
     """Apply one authorized transition and append its audit history atomically."""
 
@@ -126,6 +127,9 @@ def transition_booking(
         )
     )
     session.add(booking)
-    session.commit()
-    session.refresh(booking)
+    if commit:
+        session.commit()
+        session.refresh(booking)
+    else:
+        session.flush()
     return booking
