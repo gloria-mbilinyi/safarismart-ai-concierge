@@ -135,6 +135,8 @@ Phase 2 implements these rules as an internal workflow service with row locking 
 - Customer and operator workflow actors must carry resource-scoped authorization facts established by a future authentication layer.
 - Operator-only transitions include quoting, rejection, and confirmation. The LLM and unauthenticated callers cannot confirm bookings.
 
+Phase 3's customer-access threat model and deferral decision are documented in [customer-booking-access.md](customer-booking-access.md). Booking references and contact details are not authentication factors, so customer lookup and action endpoints remain absent until a verified account or out-of-band challenge channel exists.
+
 ## Africa's Talking integration
 
 ### SMS flow
