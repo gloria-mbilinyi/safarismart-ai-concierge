@@ -18,6 +18,7 @@ from app.models.destination import Destination
 from app.models.operator_user import OperatorUser
 from app.seed.destinations import seed_destinations
 from app.services.operator_bootstrap import bootstrap_demo_operator
+from app.security.tokens import create_operator_access_token
 
 
 @pytest.fixture
@@ -97,6 +98,23 @@ def demo_operator_user(db_session: Session, demo_password: str) -> OperatorUser:
         password=demo_password,
     )
     return user
+
+
+@pytest.fixture
+def operator_token(
+    auth_settings: Settings,
+    demo_operator_user: OperatorUser,
+) -> str:
+    """Issue a token for the synthetic operator identity."""
+
+    return create_operator_access_token(demo_operator_user, auth_settings)
+
+
+@pytest.fixture
+def operator_headers(operator_token: str) -> dict[str, str]:
+    """Return the bearer header for the synthetic operator identity."""
+
+    return {"Authorization": f"Bearer {operator_token}"}
 
 
 @pytest.fixture
