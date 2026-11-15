@@ -107,7 +107,14 @@ def transition_booking(
 ) -> BookingRequest:
     """Apply one authorized transition and append its audit history atomically."""
 
-    session.refresh(booking, with_for_update=True)
+    # Limit the locking refresh to booking columns. Refreshing the whole object
+    # also reloads its eagerly loaded optional relationships, and PostgreSQL
+    # rejects FOR UPDATE when it is applied across those outer joins.
+    session.refresh(
+        booking,
+        attribute_names=["status", "operator_id"],
+        with_for_update=True,
+    )
     authorize_transition(booking, target_status, actor)
     normalized_reason = reason.strip() if reason else None
     if target_status in REASON_REQUIRED_STATUSES and not normalized_reason:
