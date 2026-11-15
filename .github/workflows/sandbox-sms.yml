@@ -1,0 +1,39 @@
+
+name: Africa's Talking Sandbox SMS Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  send-sandbox-sms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install SafariSmart backend
+        run: python -m pip install -e ./backend
+
+      - name: Send one SMS to Sandbox Simulator
+        working-directory: backend
+        env:
+          SMS_ENABLED: 'true'
+          AFRICASTALKING_ENVIRONMENT: sandbox
+          AFRICASTALKING_USERNAME: sandbox
+          AFRICASTALKING_API_KEY: ${{ secrets.AT_SANDBOX_API_KEY }}
+          AT_SIMULATOR_NUMBER: ${{ secrets.AT_SANDBOX_SIMULATOR_NUMBER }}
+        run: |
+          test -n "$AFRICASTALKING_API_KEY"
+          test -n "$AT_SIMULATOR_NUMBER"
+          python -m app.cli.send_sandbox_sms \
+            --simulator-number "$AT_SIMULATOR_NUMBER"
