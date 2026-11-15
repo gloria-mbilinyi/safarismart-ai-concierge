@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import secrets
 from typing import Any
+from unittest.mock import Mock
 from uuid import uuid4
 
 from alembic.config import Config
@@ -17,12 +18,27 @@ from sqlalchemy import select
 from app.config import Settings
 from app.db.session import Database
 from app.main import create_app
-from app.models import Base, BookingRequest, Destination, Operator
-from app.models.enums import BookingStatus, DestinationCategory, StatusActorType
+from app.integrations.africastalking_sms import SMSResult
+from app.models import (
+    Base,
+    BookingNotification,
+    BookingRequest,
+    Destination,
+    Operator,
+)
+from app.models.enums import (
+    BookingStatus,
+    DestinationCategory,
+    NotificationStatus,
+    SMSNotificationKind,
+    StatusActorType,
+)
 from app.seed.destinations import seed_destinations
 from app.services.booking_workflow import WorkflowActor, transition_booking
 from app.services.demo_assignment import assign_demo_destinations
+from app.services.notification_outbox import process_next_notification
 from app.services.operator_bootstrap import bootstrap_demo_operator
+from app.services.sms_notifications import SMSNotificationService
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -41,7 +57,7 @@ def booking_payload(destination_id: object) -> dict[str, Any]:
         "customer_name": "PostgreSQL Synthetic Customer",
         "customer_email": "postgres.customer@example.com",
         "customer_phone": "+255713456789",
-        "customer_contact_preference": "email",
+        "customer_contact_preference": "phone",
         "customer_consent": True,
         "special_requests": "CI integration test only.",
     }
@@ -108,6 +124,26 @@ def test_postgresql_authenticated_operator_booking_workflow() -> None:
             )
             assert submission.status_code == 201, submission.text
             booking_reference = submission.json()["booking_reference"]
+
+            with database.session_factory() as session:
+                queued_notification = session.scalar(select(BookingNotification))
+                assert queued_notification is not None
+                assert queued_notification.kind == (
+                    SMSNotificationKind.BOOKING_RECEIVED.value
+                )
+                assert queued_notification.status == NotificationStatus.QUEUED.value
+
+            provider = Mock()
+            provider.send.return_value = SMSResult(
+                status="accepted", message_id="postgres-provider-message"
+            )
+            processed = process_next_notification(
+                database.session_factory,
+                SMSNotificationService(provider),
+                now=datetime.now(UTC) + timedelta(minutes=1),
+            )
+            assert processed is not None
+            assert processed.status is NotificationStatus.ACCEPTED
 
             login = client.post(
                 "/api/v1/auth/token",
@@ -209,6 +245,22 @@ def test_postgresql_authenticated_operator_booking_workflow() -> None:
             assert [
                 item["to_status"] for item in confirmation.json()["status_history"]
             ][-3:] == ["quoted", "pending_confirmation", "confirmed"]
+
+            with database.session_factory() as session:
+                notifications = list(
+                    session.scalars(
+                        select(BookingNotification).order_by(
+                            BookingNotification.created_at
+                        )
+                    ).all()
+                )
+                assert len(notifications) == 4
+                assert notifications[0].status == NotificationStatus.ACCEPTED.value
+                assert {item.kind for item in notifications[1:]} == {
+                    SMSNotificationKind.SYNTHETIC_QUOTE_AVAILABLE.value,
+                    SMSNotificationKind.STATUS_UPDATED.value,
+                    SMSNotificationKind.SYNTHETIC_BOOKING_CONFIRMED.value,
+                }
     finally:
         clear_domain_data(database)
         database.dispose()

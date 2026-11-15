@@ -7,6 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.models.booking import BookingRequest, BookingStatusHistory
 from app.models.enums import BookingStatus, StatusActorType
+from app.services.notification_outbox import (
+    notification_kind_for_status,
+    schedule_booking_notification,
+)
 
 
 class InvalidBookingTransitionError(Exception):
@@ -132,6 +136,11 @@ def transition_booking(
             actor_reference=actor.principal_id.strip(),
             reason=normalized_reason,
         )
+    )
+    schedule_booking_notification(
+        session,
+        booking,
+        notification_kind_for_status(target_status),
     )
     session.add(booking)
     if commit:

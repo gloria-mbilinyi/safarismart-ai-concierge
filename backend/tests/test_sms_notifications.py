@@ -6,10 +6,12 @@ from unittest.mock import Mock
 import pytest
 
 from app.integrations.africastalking_sms import SMSResult
-from app.models.enums import BookingStatus
-from app.services.sms_notifications import (
+from app.models.enums import (
+    BookingStatus,
     SMSLanguage,
     SMSNotificationKind,
+)
+from app.services.sms_notifications import (
     SMSNotificationService,
     notification_body,
     prepare_booking_sms,

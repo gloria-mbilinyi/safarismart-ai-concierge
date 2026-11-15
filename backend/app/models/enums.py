@@ -31,3 +31,31 @@ class StatusActorType(StrEnum):
     CUSTOMER = "customer"
     OPERATOR = "operator"
     SYSTEM = "system"
+
+
+class SMSNotificationKind(StrEnum):
+    """Supported booking SMS events."""
+
+    BOOKING_RECEIVED = "booking_received"
+    STATUS_UPDATED = "status_updated"
+    SYNTHETIC_QUOTE_AVAILABLE = "synthetic_quote_available"
+    BOOKING_REJECTED = "booking_rejected"
+    SYNTHETIC_BOOKING_CONFIRMED = "synthetic_booking_confirmed"
+
+
+class SMSLanguage(StrEnum):
+    """Languages available for transactional SMS templates."""
+
+    ENGLISH = "en"
+    SWAHILI = "sw"
+
+
+class NotificationStatus(StrEnum):
+    """Outbox and provider delivery lifecycle states."""
+
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    ACCEPTED = "accepted"
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    UNKNOWN = "unknown"

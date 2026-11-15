@@ -16,6 +16,17 @@ PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 class SMSDeliveryError(Exception):
     """Raised when the SMS provider cannot accept a message."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool,
+        code: str,
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.code = code
+
 
 class SMSConfigurationError(Exception):
     """Raised when SMS sending is disabled or incompletely configured."""
@@ -90,7 +101,9 @@ class AfricasTalkingSMSProvider:
                 response = self.client.send(message, [phone], self.sender_id)
         except Exception as exc:
             raise SMSDeliveryError(
-                "SMS provider request failed"
+                "SMS provider request failed",
+                retryable=True,
+                code="provider_transport_error",
             ) from exc
 
         try:
@@ -98,12 +111,16 @@ class AfricasTalkingSMSProvider:
             provider_status = recipient["status"]
         except (KeyError, IndexError, TypeError):
             raise SMSDeliveryError(
-                "Unexpected SMS provider response"
+                "Unexpected SMS provider response",
+                retryable=True,
+                code="provider_response_invalid",
             ) from None
 
         if provider_status != "Success":
             raise SMSDeliveryError(
-                "SMS provider did not accept the message"
+                "SMS provider did not accept the message",
+                retryable=False,
+                code="provider_rejected",
             )
 
         return SMSResult(

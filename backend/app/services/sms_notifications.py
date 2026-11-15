@@ -1,29 +1,11 @@
 """Consent-aware, PII-minimized SMS notification composition and sending."""
 
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Protocol
 
 from app.integrations.africastalking_sms import PHONE_PATTERN, SMSResult
 from app.models.booking import BookingRequest
-from app.models.enums import BookingStatus
-
-
-class SMSNotificationKind(StrEnum):
-    """Supported booking SMS events."""
-
-    BOOKING_RECEIVED = "booking_received"
-    STATUS_UPDATED = "status_updated"
-    SYNTHETIC_QUOTE_AVAILABLE = "synthetic_quote_available"
-    BOOKING_REJECTED = "booking_rejected"
-    SYNTHETIC_BOOKING_CONFIRMED = "synthetic_booking_confirmed"
-
-
-class SMSLanguage(StrEnum):
-    """Languages currently available for transactional SMS templates."""
-
-    ENGLISH = "en"
-    SWAHILI = "sw"
+from app.models.enums import BookingStatus, SMSLanguage, SMSNotificationKind
 
 
 class SMSProvider(Protocol):
@@ -173,4 +155,9 @@ class SMSNotificationService:
         prepared = prepare_booking_sms(booking, kind, language)
         if prepared is None:
             return None
+        return self.send_prepared(prepared)
+
+    def send_prepared(self, prepared: PreparedSMS) -> SMSResult:
+        """Submit an already validated outbox message outside its transaction."""
+
         return self.provider.send(prepared.recipient, prepared.body)

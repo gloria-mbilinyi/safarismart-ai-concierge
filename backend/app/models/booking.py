@@ -27,6 +27,7 @@ from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.destination import Destination
+    from app.models.notification import BookingNotification
     from app.models.operator import Operator
     from app.models.quote import BookingQuote
 
@@ -98,6 +99,10 @@ class BookingRequest(TimestampMixin, Base):
         back_populates="booking_request",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    notifications: Mapped[list[BookingNotification]] = relationship(
+        back_populates="booking_request",
+        cascade="all, delete-orphan",
     )
 
 

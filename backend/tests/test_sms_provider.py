@@ -58,8 +58,11 @@ def test_provider_network_failure():
 
     provider = AfricasTalkingSMSProvider(client)
 
-    with pytest.raises(SMSDeliveryError):
+    with pytest.raises(SMSDeliveryError) as raised:
         provider.send("+255712345678", "Hello")
+
+    assert raised.value.retryable is True
+    assert raised.value.code == "provider_transport_error"
 
 
 def test_provider_rejected_message():
@@ -72,5 +75,21 @@ def test_provider_rejected_message():
 
     provider = AfricasTalkingSMSProvider(client)
 
-    with pytest.raises(SMSDeliveryError):
+    with pytest.raises(SMSDeliveryError) as raised:
         provider.send("+255712345678", "Hello")
+
+    assert raised.value.retryable is False
+    assert raised.value.code == "provider_rejected"
+
+
+def test_unexpected_provider_response_is_safe_and_retryable():
+    client = Mock()
+    client.send.return_value = {"unexpected": "sensitive-provider-detail"}
+    provider = AfricasTalkingSMSProvider(client)
+
+    with pytest.raises(SMSDeliveryError) as raised:
+        provider.send("+255712345678", "Hello")
+
+    assert raised.value.retryable is True
+    assert raised.value.code == "provider_response_invalid"
+    assert "sensitive-provider-detail" not in str(raised.value)

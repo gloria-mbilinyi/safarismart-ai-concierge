@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from app.models.booking import BookingRequest, BookingStatusHistory
 from app.models.destination import Destination
 from app.models.enums import BookingStatus, StatusActorType
+from app.models.enums import SMSNotificationKind
 from app.schemas.booking import BookingRequestCreate
+from app.services.notification_outbox import schedule_booking_notification
 
 
 class DestinationUnavailableError(Exception):
@@ -118,6 +120,11 @@ def create_booking_request(
         )
     )
     session.add(booking)
+    schedule_booking_notification(
+        session,
+        booking,
+        SMSNotificationKind.BOOKING_RECEIVED,
+    )
 
     try:
         session.commit()
