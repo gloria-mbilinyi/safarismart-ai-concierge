@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     auth_access_token_expire_minutes: int = Field(default=30, ge=5, le=1440)
     auth_issuer: str = "safarismart-api"
     auth_audience: str = "safarismart-operator"
+    sms_enabled: bool = False
+    africastalking_environment: Literal["sandbox", "production"] = "sandbox"
+    africastalking_username: str | None = None
+    africastalking_api_key: SecretStr | None = None
+    africastalking_sender_id: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -40,12 +45,18 @@ class Settings(BaseSettings):
 
         return value.rstrip("/")
 
-    @field_validator("auth_secret_key", mode="before")
+    @field_validator(
+        "auth_secret_key",
+        "africastalking_username",
+        "africastalking_api_key",
+        "africastalking_sender_id",
+        mode="before",
+    )
     @classmethod
-    def normalize_auth_secret(cls, value: object) -> object:
-        """Treat an empty environment variable as an unconfigured secret."""
+    def normalize_optional_configuration(cls, value: object) -> object:
+        """Treat empty optional environment values as unconfigured."""
 
-        return None if value == "" else value
+        return None if isinstance(value, str) and not value.strip() else value
 
     @model_validator(mode="after")
     def validate_deployment_security(self) -> "Settings":
@@ -74,6 +85,41 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "APP_DEBUG cannot be enabled in staging or production"
                 )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_sms_configuration(self) -> "Settings":
+        """Keep SMS disabled or require one internally consistent credential set."""
+
+        username = self.africastalking_username
+        api_key = self.africastalking_api_key
+        has_any_credentials = username is not None or api_key is not None
+
+        if self.sms_enabled or has_any_credentials:
+            if username is None or api_key is None:
+                raise ValueError(
+                    "AFRICASTALKING_USERNAME and AFRICASTALKING_API_KEY "
+                    "must be configured together"
+                )
+
+            normalized_username = username.strip()
+            if self.africastalking_environment == "sandbox":
+                if normalized_username.lower() != "sandbox":
+                    raise ValueError(
+                        "The Africa's Talking sandbox username must be 'sandbox'"
+                    )
+            elif normalized_username.lower() == "sandbox":
+                raise ValueError(
+                    "Production SMS cannot use the Africa's Talking sandbox username"
+                )
+
+            secret = api_key.get_secret_value().strip()
+            insecure_markers = ("placeholder", "your-api-key", "change-me", "<", ">")
+            if len(secret) < 8 or any(
+                marker in secret.lower() for marker in insecure_markers
+            ):
+                raise ValueError("AFRICASTALKING_API_KEY is not a valid configured key")
 
         return self
 
