@@ -39,7 +39,7 @@ def booking_payload(destination_id: object) -> dict[str, Any]:
         "travel_end_date": (start_date + timedelta(days=4)).isoformat(),
         "party_size": 2,
         "customer_name": "PostgreSQL Synthetic Customer",
-        "customer_email": "postgres.customer@example.test",
+        "customer_email": "postgres.customer@example.com",
         "customer_phone": "+255713456789",
         "customer_contact_preference": "email",
         "customer_consent": True,

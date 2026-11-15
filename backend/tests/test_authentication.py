@@ -242,5 +242,6 @@ def test_production_rejects_missing_or_development_security_defaults() -> None:
         Settings(
             app_env="production",
             auth_secret_key=secrets.token_urlsafe(48),
+            database_url="postgresql+psycopg://localhost/safarismart",
             _env_file=None,
         )
