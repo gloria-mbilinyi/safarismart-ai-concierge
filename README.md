@@ -6,7 +6,7 @@ The platform is being designed to help travellers discover destinations, request
 
 ## Project status
 
-Phase 3 provides a database-backed destination catalog, public booking request submission, secure operator authentication, and organization-scoped booking management. Concierge AI, the frontend, live inventory, payments, verified customer access, SMS, and USSD remain planned work.
+Phase 4 Step 2 adds consent-aware booking SMS notifications and an Africa's Talking Sandbox integration to the database-backed catalog, booking, and secure operator-management platform. Concierge AI, the frontend, live inventory, payments, verified customer access, inbound SMS, and USSD remain planned work.
 
 The current API provides:
 
@@ -19,6 +19,9 @@ The current API provides:
 - Clearly labelled synthetic quote and confirmation demonstrations
 - PostgreSQL models and Alembic migrations
 - An authorized booking status workflow with audit history
+- English and Swahili booking SMS templates with consent and phone-preference checks
+- A transactional SMS outbox with idempotency, worker leases, retries, and delivery states
+- A sandbox-first Africa's Talking adapter and explicit Simulator test command
 - Isolated unit tests and PostgreSQL integration testing in GitHub Actions
 
 ## Technology stack
@@ -184,6 +187,18 @@ python -m pytest -v
 
 Do not point `TEST_DATABASE_URL` at a database containing valuable data: the integration test clears application-domain tables before and after its run. The `Backend CI` GitHub Actions workflow performs these steps with an isolated PostgreSQL service and Python 3.12.
 
+## SMS notifications and Sandbox testing
+
+SMS is disabled by default. There is no public arbitrary-message endpoint. Booking creation and valid status transitions enqueue fixed, PII-minimized templates only when the customer consented and selected phone contact. Database transactions never call Africa's Talking directly; a worker claims committed outbox rows before submitting them.
+
+For a Sandbox check, set `SMS_ENABLED=true`, keep `AFRICASTALKING_ENVIRONMENT=sandbox`, use the required `sandbox` username and your Sandbox API key, then register the designated test number in the [Africa's Talking Simulator](https://simulator.africastalking.com:1517/). From `backend/`, run:
+
+```bash
+python -m app.cli.send_sandbox_sms --simulator-number +2557XXXXXXXX
+```
+
+The command sends one fixed test message, refuses production configuration, and does not print credentials or the recipient. An accepted API response is not proof of delivery; verify the message in the Simulator inbox. See [docs/sms-notifications.md](docs/sms-notifications.md) for worker behavior, state definitions, full setup, and production requirements.
+
 ## Available API endpoints
 
 | Method | Path | Purpose | Access |
@@ -278,8 +293,11 @@ Runtime settings are read from environment variables and, for local development,
 | `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | Operator token lifetime from 5 to 1,440 minutes | `30` |
 | `AUTH_ISSUER` | Required access-token issuer | `safarismart-api` |
 | `AUTH_AUDIENCE` | Required access-token audience | `safarismart-operator` |
-| `AFRICASTALKING_USERNAME` | Future Africa's Talking account or sandbox username | Not connected yet |
-| `AFRICASTALKING_API_KEY` | Future Africa's Talking API credential | Not connected yet |
+| `SMS_ENABLED` | Explicitly enable provider-backed SMS sending | `false` |
+| `AFRICASTALKING_ENVIRONMENT` | Provider environment: sandbox or production | `sandbox` |
+| `AFRICASTALKING_USERNAME` | `sandbox` in test; live app username in production | Blank |
+| `AFRICASTALKING_API_KEY` | Secret API credential loaded as a redacted value | Blank |
+| `AFRICASTALKING_SENDER_ID` | Optional registered sender ID | Blank |
 | `LLM_API_KEY` | Future language-model provider credential | Not connected yet |
 
 Never commit a populated `.env` file or any credential.
@@ -291,7 +309,10 @@ Never commit a populated `.env` file or any credential.
 - Customer lookup, quote acceptance, and cancellation remain deferred until a verified account or out-of-band challenge channel exists. See [docs/customer-booking-access.md](docs/customer-booking-access.md).
 - Operator quote data is synthetic and does not integrate with inventory, payment, or reservation providers.
 - Access tokens are stateless; per-user `token_version` supports revocation, but password reset, MFA, key rotation, and a production identity administration flow are not implemented.
-- Payments, AI concierge behavior, frontend screens, SMS, and USSD are outside Phase 3.
+- The outbox worker service still needs deployment scheduling or a dedicated worker process.
+- Delivery-report persistence is internal; a provider-authenticated callback endpoint is deferred until callback controls are designed.
+- Sandbox acceptance must be verified manually in the Simulator and is not real handset delivery.
+- Payments, AI concierge behavior, frontend screens, inbound SMS, and USSD remain outside the current phase.
 
 ## Architecture
 
