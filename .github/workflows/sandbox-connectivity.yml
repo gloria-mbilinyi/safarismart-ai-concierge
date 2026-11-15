@@ -1,0 +1,21 @@
+
+name: Africa's Talking Sandbox Connectivity
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-connectivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Test Sandbox HTTPS connection
+        run: |
+          curl -sS --max-time 20 \
+            -o /dev/null \
+            -w 'HTTP status: %{http_code}\n' \
+            https://api.sandbox.africastalking.com/version1/user
+
+      - name: Report result
+        run: echo "Sandbox connectivity check completed."
