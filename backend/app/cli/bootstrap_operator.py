@@ -66,8 +66,8 @@ def main() -> None:
         database.dispose()
 
     print(
-        f"Created synthetic operator '{operator.slug}' with user '{user.email}' "
-        f"and assigned {assigned_count} demo destination(s)."
+        f"Synthetic operator '{operator.slug}' with user '{user.email}' is ready; "
+        f"assigned {assigned_count} previously unassigned demo destination(s)."
     )
 
 

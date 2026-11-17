@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.operator import Operator
 from app.models.operator_user import OperatorUser
-from app.security.passwords import hash_password
+from app.security.passwords import hash_password, verify_password
 from app.services.authentication import normalize_email
 
 
@@ -27,7 +27,7 @@ def bootstrap_demo_operator(
     user_full_name: str,
     password: str,
 ) -> tuple[Operator, OperatorUser]:
-    """Create a clearly synthetic demo organization and its first identity."""
+    """Create or safely reuse one explicitly matching synthetic demo identity."""
 
     normalized_slug = operator_slug.strip().lower()
     normalized_email = normalize_email(user_email)
@@ -36,13 +36,24 @@ def bootstrap_demo_operator(
     if not operator_name.strip() or not user_full_name.strip():
         raise ValueError("Operator and user names must not be blank")
 
+    operator = session.scalar(select(Operator).where(Operator.slug == normalized_slug))
     existing_user = session.scalar(
         select(OperatorUser).where(OperatorUser.email == normalized_email)
     )
     if existing_user is not None:
-        raise DemoBootstrapConflictError("Operator user already exists")
+        if (
+            operator is not None
+            and operator.id == existing_user.operator_id
+            and operator.is_demo
+            and operator.name == operator_name.strip()
+            and existing_user.full_name == user_full_name.strip()
+            and verify_password(password, existing_user.password_hash)
+        ):
+            return operator, existing_user
+        raise DemoBootstrapConflictError(
+            "Operator user exists with different demo setup details"
+        )
 
-    operator = session.scalar(select(Operator).where(Operator.slug == normalized_slug))
     if operator is None:
         operator = Operator(
             name=operator_name.strip(),

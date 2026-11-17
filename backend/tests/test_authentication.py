@@ -62,6 +62,17 @@ def test_demo_bootstrap_creates_synthetic_operator_identity(
     assert user.password_hash != password
     assert verify_password(password, user.password_hash)
 
+    same_operator, same_user = bootstrap_demo_operator(
+        db_session,
+        operator_name="Synthetic Coast Tours",
+        operator_slug="synthetic-coast-tours",
+        user_email="local.demo@example.test",
+        user_full_name="Local Demo User",
+        password=password,
+    )
+    assert same_operator.id == operator.id
+    assert same_user.id == user.id
+
     with pytest.raises(DemoBootstrapConflictError):
         bootstrap_demo_operator(
             db_session,
