@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "staging", "production"] = "development"
     app_debug: bool = False
     api_v1_prefix: str = "/api"
+    frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     database_url: str = "postgresql+psycopg://localhost/safarismart"
     auth_secret_key: SecretStr | None = None
     auth_access_token_expire_minutes: int = Field(default=30, ge=5, le=1440)
@@ -48,6 +49,27 @@ class Settings(BaseSettings):
             raise ValueError("API_V1_PREFIX must start with '/'")
 
         return value.rstrip("/")
+
+    @field_validator("frontend_origins")
+    @classmethod
+    def validate_frontend_origins(cls, value: str) -> str:
+        """Normalize an explicit comma-separated CORS allowlist."""
+
+        origins = [origin.strip().rstrip("/") for origin in value.split(",")]
+        if not origins or any(
+            not origin.startswith(("http://", "https://")) or "*" in origin
+            for origin in origins
+        ):
+            raise ValueError(
+                "FRONTEND_ORIGINS must be an explicit comma-separated HTTP(S) allowlist"
+            )
+        return ",".join(dict.fromkeys(origins))
+
+    @property
+    def allowed_frontend_origins(self) -> list[str]:
+        """Return the normalized CORS allowlist for FastAPI middleware."""
+
+        return self.frontend_origins.split(",")
 
     @field_validator("ollama_base_url")
     @classmethod
