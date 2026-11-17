@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     app_debug: bool = False
     api_v1_prefix: str = "/api"
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    frontend_dist_path: str | None = None
     database_url: str = "postgresql+psycopg://localhost/safarismart"
     auth_secret_key: SecretStr | None = None
     auth_access_token_expire_minutes: int = Field(default=30, ge=5, le=1440)
@@ -95,6 +96,7 @@ class Settings(BaseSettings):
         return normalized
 
     @field_validator(
+        "frontend_dist_path",
         "auth_secret_key",
         "africastalking_username",
         "africastalking_api_key",

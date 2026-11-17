@@ -63,6 +63,9 @@ jobs:
       - name: Build and start the local MVP stack
         run: docker compose up --build --detach db api frontend
 
+      - name: Build single-image Marketplace package
+        run: docker build --file marketplace/Dockerfile --tag safarismart-marketplace:ci .
+
       - name: Verify frontend and proxied API health
         shell: bash
         run: |
