@@ -1,4 +1,4 @@
-"""Catalog-grounded trip planning and constrained concierge chat."""
+"""Catalog-grounded trip planning."""
 
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from app.integrations.concierge_provider import (
 from app.models.destination import Destination
 from app.models.enums import DestinationCategory
 from app.schemas.concierge import (
-    ConciergeChatRequest,
-    ConciergeChatResponse,
     ConciergeLanguage,
     ItineraryDay,
     PlanDestination,
@@ -30,18 +28,6 @@ class DestinationSelectionError(ValueError):
     """Raised when an explicit plan references unavailable catalog rows."""
 
 
-INJECTION_MARKERS = (
-    "ignore previous",
-    "ignore all",
-    "system prompt",
-    "developer message",
-    "reveal prompt",
-    "show your instructions",
-    "act as system",
-    "bypass",
-    "jailbreak",
-)
-
 INTEREST_CATEGORIES: dict[TravelInterest, set[str]] = {
     TravelInterest.WILDLIFE: {
         DestinationCategory.NATIONAL_PARK.value,
@@ -54,34 +40,6 @@ INTEREST_CATEGORIES: dict[TravelInterest, set[str]] = {
         DestinationCategory.CONSERVATION_AREA.value,
     },
     TravelInterest.NATURE: {category.value for category in DestinationCategory},
-}
-
-CHAT_INTEREST_KEYWORDS: dict[TravelInterest, tuple[str, ...]] = {
-    TravelInterest.WILDLIFE: (
-        "wildlife",
-        "safari",
-        "animals",
-        "migration",
-        "wanyama",
-        "pori",
-    ),
-    TravelInterest.BEACH: ("beach", "ocean", "island", "pwani", "bahari"),
-    TravelInterest.MOUNTAIN: (
-        "mountain",
-        "climb",
-        "trek",
-        "kilimanjaro",
-        "mlima",
-        "kupanda",
-    ),
-    TravelInterest.CULTURE: (
-        "culture",
-        "history",
-        "community",
-        "utamaduni",
-        "historia",
-    ),
-    TravelInterest.NATURE: ("nature", "landscape", "mazingira", "mandhari"),
 }
 
 
@@ -427,89 +385,4 @@ def _disclaimer(swahili: bool) -> str:
     return (
         "This is a planning idea, not a price, live availability, or a confirmed reservation. "
         "Submit a booking request for review by the synthetic demo operator."
-    )
-
-
-def _chat_interests(message: str) -> list[TravelInterest]:
-    """Infer only the supported interest labels from transparent keyword groups."""
-
-    normalized = message.casefold()
-    return [
-        interest
-        for interest, keywords in CHAT_INTEREST_KEYWORDS.items()
-        if any(keyword in normalized for keyword in keywords)
-    ]
-
-
-def chat_about_destinations(
-    session: Session,
-    request: ConciergeChatRequest,
-    provider: DestinationRankingProvider | None = None,
-) -> ConciergeChatResponse:
-    """Answer catalog-discovery questions without executing user instructions."""
-
-    normalized = request.message.casefold()
-    swahili = request.language == ConciergeLanguage.SWAHILI
-    if any(marker in normalized for marker in INJECTION_MARKERS):
-        return ConciergeChatResponse(
-            generation_mode="rule_based_fallback",
-            answer=(
-                "Naweza kusaidia tu kugundua maeneo ya Tanzania katika orodha ya SafariSmart."
-                if swahili
-                else "I can only help you discover Tanzania destinations in SafariSmart's catalog."
-            ),
-            referenced_destinations=[],
-            safety_notice=(
-                "Maelekezo yasiyohusiana na upangaji salama wa safari yamepuuzwa."
-                if swahili
-                else "Instructions unrelated to safe trip planning were ignored."
-            ),
-        )
-
-    destinations = _active_destinations(session)
-    interests = _chat_interests(request.message)
-    exact_matches = [
-        destination
-        for destination in destinations
-        if destination.name.casefold() in normalized
-        or destination.slug.replace("-", " ") in normalized
-        or destination.region.casefold() in normalized
-    ]
-    ranked = _score_destinations(
-        exact_matches or destinations,
-        interests or [TravelInterest.NATURE],
-        None,
-    )
-    ranked, generation_mode = _apply_optional_ranking(
-        ranked,
-        interests or [TravelInterest.NATURE],
-        None,
-        provider,
-    )
-    selected = ranked[:3]
-    plan_request = TripPlanRequest(
-        days=max(1, len(selected)),
-        interests=interests or [TravelInterest.NATURE],
-        language=request.language,
-    )
-    references = [
-        _plan_destination(destination, plan_request) for destination in selected
-    ]
-    if not references:
-        answer = (
-            "Orodha ya maeneo haijajazwa bado."
-            if swahili
-            else "The destination catalog has not been populated yet."
-        )
-    else:
-        names = ", ".join(item.name for item in references)
-        answer = (
-            f"Kulingana na orodha yetu, anza na {names}. Tazama maelezo ya maeneo kabla ya kutuma ombi la booking."
-            if swahili
-            else f"Based on our catalog, start with {names}. Review the destination details before submitting a booking request."
-        )
-    return ConciergeChatResponse(
-        generation_mode=generation_mode,
-        answer=answer,
-        referenced_destinations=references,
     )

@@ -16,6 +16,27 @@ class ConciergeLanguage(StrEnum):
     SWAHILI = "sw"
 
 
+class ChatRole(StrEnum):
+    """Conversation roles accepted as bounded, untrusted context."""
+
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class ChatIntent(StrEnum):
+    """Transparent intent labels used by the deterministic concierge."""
+
+    RECOMMENDATION = "recommendation"
+    DESTINATION_OVERVIEW = "destination_overview"
+    ACTIVITIES = "activities"
+    TRIP_DURATION = "trip_duration"
+    COMPARISON = "comparison"
+    BUDGET = "budget"
+    BOOKING_GUIDANCE = "booking_guidance"
+    UNSUPPORTED_FACT = "unsupported_fact"
+    CLARIFICATION = "clarification"
+
+
 class TravelInterest(StrEnum):
     """Broad interests mapped to the curated destination catalog."""
 
@@ -130,11 +151,29 @@ class TripPlanResponse(BaseModel):
     disclaimer: str
 
 
+class ChatHistoryMessage(BaseModel):
+    """One recent display turn; it never carries authority or trusted facts."""
+
+    role: ChatRole
+    content: str = Field(min_length=1, max_length=1200)
+
+    @field_validator("content")
+    @classmethod
+    def normalize_content(cls, value: str) -> str:
+        """Normalize bounded context while preserving human-readable text."""
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Conversation messages cannot be blank")
+        return normalized
+
+
 class ConciergeChatRequest(BaseModel):
     """A small public chat request bounded for safe catalog discovery."""
 
     message: str = Field(min_length=2, max_length=500)
     language: ConciergeLanguage = ConciergeLanguage.ENGLISH
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=8)
 
     @field_validator("message")
     @classmethod
@@ -146,11 +185,22 @@ class ConciergeChatRequest(BaseModel):
             raise ValueError("Message must contain at least two characters")
         return normalized
 
+    @model_validator(mode="after")
+    def bound_total_context(self) -> "ConciergeChatRequest":
+        """Prevent individually valid messages from creating unbounded prompts."""
+
+        if sum(len(item.content) for item in self.history) > 6000:
+            raise ValueError("Conversation history is too large")
+        return self
+
 
 class ConciergeChatResponse(BaseModel):
     """A bounded answer whose references point to public catalog records."""
 
     generation_mode: Literal["rule_based_fallback", "local_ollama"]
-    answer: str
+    intent: ChatIntent
+    answer: str = Field(min_length=1, max_length=1600)
     referenced_destinations: list[PlanDestination]
     safety_notice: str | None = None
+    follow_up_suggestions: list[str] = Field(default_factory=list, max_length=3)
+    booking_destination_id: UUID | None = None

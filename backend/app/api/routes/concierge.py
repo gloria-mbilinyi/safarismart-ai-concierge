@@ -14,9 +14,9 @@ from app.schemas.concierge import (
 )
 from app.services.concierge import (
     DestinationSelectionError,
-    chat_about_destinations,
     create_trip_plan,
 )
+from app.services.concierge_chat import chat_about_destinations
 
 
 router = APIRouter(prefix="/v1/concierge", tags=["concierge"])
