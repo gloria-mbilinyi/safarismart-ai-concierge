@@ -20,6 +20,7 @@ export function PlannerPage() {
     party_size: 2,
     interests: ["wildlife"],
     budget_style: "comfort",
+    budget_tzs: 2_500_000,
     language: "en",
   });
   const [plan, setPlan] = useState<TripPlan | null>(null);
@@ -92,6 +93,20 @@ export function PlannerPage() {
                 <option value="comfort">Comfort</option>
                 <option value="premium">Premium style</option>
               </select>
+            </label>
+            <label>Total budget (TZS) <span className="optional">planning context</span>
+              <input
+                type="number"
+                min="100000"
+                max="100000000"
+                step="50000"
+                value={form.budget_tzs ?? ""}
+                onChange={(event) => setForm({
+                  ...form,
+                  budget_tzs: event.target.value ? Number(event.target.value) : undefined,
+                })}
+                placeholder="2500000"
+              />
             </label>
             <label>Language
               <select value={form.language} onChange={(event) => setForm({ ...form, language: event.target.value as "en" | "sw" })}>

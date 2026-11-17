@@ -34,6 +34,7 @@ export interface TripPlanRequest {
   party_size: number;
   interests: TravelInterest[];
   budget_style: "value" | "comfort" | "premium";
+  budget_tzs?: number;
   preferred_region?: string;
   language: "en" | "sw";
 }

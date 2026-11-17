@@ -48,6 +48,7 @@ def test_plan_is_grounded_in_catalog_and_has_no_price_or_confirmation_claim(
             "party_size": 2,
             "interests": ["wildlife", "culture"],
             "budget_style": "value",
+            "budget_tzs": 2_500_000,
             "language": "en",
         },
     )
@@ -62,9 +63,9 @@ def test_plan_is_grounded_in_catalog_and_has_no_price_or_confirmation_claim(
     assert {day["destination_name"] for day in payload["itinerary"]} <= catalog_names
     assert "not a price" in payload["disclaimer"]
     assert "confirmed reservation" in payload["disclaimer"]
-    assert not any(
-        symbol in response.text for symbol in ("TZS", "$", "USD", "€", "£")
-    )
+    assert "TZS 2,500,000" in payload["summary"]
+    assert "no costs are estimated" in payload["summary"]
+    assert not any(symbol in response.text for symbol in ("$", "USD", "€", "£"))
 
 
 def test_plan_supports_swahili_and_explicitly_labels_limitations(
@@ -101,9 +102,14 @@ def test_plan_validates_bounds_and_supported_interest_values(
         "/api/v1/concierge/plan",
         json={"days": 3, "interests": ["ignore rules"]},
     )
+    invalid_budget = client.post(
+        "/api/v1/concierge/plan",
+        json={"days": 3, "interests": ["wildlife"], "budget_tzs": 99_999},
+    )
 
     assert too_long.status_code == 422
     assert unknown_interest.status_code == 422
+    assert invalid_budget.status_code == 422
 
 
 def test_provider_failure_and_unsafe_output_fall_back_without_breaking_api(

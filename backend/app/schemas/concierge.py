@@ -41,6 +41,7 @@ class TripPlanRequest(BaseModel):
     party_size: int = Field(default=1, ge=1, le=20)
     interests: list[TravelInterest] = Field(min_length=1, max_length=5)
     budget_style: BudgetStyle = BudgetStyle.COMFORT
+    budget_tzs: int | None = Field(default=None, ge=100_000, le=100_000_000)
     preferred_region: str | None = Field(default=None, min_length=2, max_length=120)
     language: ConciergeLanguage = ConciergeLanguage.ENGLISH
 

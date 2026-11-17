@@ -285,11 +285,26 @@ def create_trip_plan(
         if swahili
         else f"{request.days}-day Tanzania trip idea"
     )
-    summary = (
-        f"Pendekezo la kiwango cha {request.budget_style.value} kwa watu {request.party_size}, likitumia maeneo yaliyopo kwenye orodha yetu."
-        if swahili
-        else f"A {request.budget_style.value}-style idea for {request.party_size} traveler(s), using destinations in our curated catalog."
-    )
+    if swahili:
+        summary = (
+            f"Pendekezo la kiwango cha {request.budget_style.value} kwa watu "
+            f"{request.party_size}, likitumia maeneo yaliyopo kwenye orodha yetu."
+        )
+        if request.budget_tzs is not None:
+            summary += (
+                f" Bajeti ya jumla ya TZS {request.budget_tzs:,} ni muktadha wa "
+                "kupanga tu; hatukadirii gharama."
+            )
+    else:
+        summary = (
+            f"A {request.budget_style.value}-style idea for {request.party_size} "
+            "traveler(s), using destinations in our curated catalog."
+        )
+        if request.budget_tzs is not None:
+            summary += (
+                f" Your TZS {request.budget_tzs:,} total budget is planning "
+                "context only; no costs are estimated."
+            )
     return TripPlanResponse(
         generation_mode=generation_mode,
         title=title,
