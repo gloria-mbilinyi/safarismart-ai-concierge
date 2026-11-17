@@ -1,214 +1,177 @@
 # SafariSmart AI Concierge Architecture
 
-## Status and scope
+## Implemented scope
 
-This document describes both the implemented Phase 3 backend and the proposed target architecture. Phase 3 implements the FastAPI foundation, SQLAlchemy persistence, Alembic migrations, a public destination catalog, idempotent booking request submission, operator authentication and authorization, protected booking management, and an audited workflow. Components marked as planned should guide later phases rather than be treated as deployed functionality.
+SafariSmart is a modular-monolith hackathon MVP. One FastAPI application owns validation, catalog grounding, booking rules, operator authorization, SMS scheduling, and USSD menus; PostgreSQL is the system of record. React is deployed either behind Nginx in the local Compose stack or as static files served by FastAPI in the single-image Marketplace build.
 
-The architecture favors a modular monolith for the hackathon: one deployable backend with explicit internal boundaries. This keeps deployment and operations simple while allowing high-volume or integration-heavy modules to be extracted later if needed.
+The product intentionally submits **booking requests**, not real reservations. It has no live inventory, payments, provider booking API, or verified customer account. All operator quotes and confirmations available in the demo are visibly synthetic.
 
-## Design goals
-
-- Make tourism discovery accessible through web, SMS, and USSD channels.
-- Keep booking decisions deterministic and auditable; the LLM may assist but cannot confirm a booking by itself.
-- Isolate external providers behind adapters so sandbox and production implementations can be exchanged safely.
-- Protect credentials and minimize stored personal data.
-- Make inbound callbacks idempotent and outbound notifications observable.
-- Keep USSD interactions short and responsive while allowing longer-running AI work on web and SMS channels.
-
-## System components
-
-The API, booking service, PostgreSQL persistence boundary, destination catalog, operator security boundary, and protected workflow are implemented. The web clients, concierge, notifications, provider adapters, and Africa's Talking paths in the following target diagram remain planned.
+## Runtime view
 
 ```mermaid
 flowchart LR
-    Web[Traveller web app] --> API[FastAPI transport layer]
-    Dashboard[Operator dashboard] --> API
-    SMS[SMS user] <--> AT[Africa's Talking]
-    USSD[USSD user] <--> AT
-    AT --> Webhooks[SMS and USSD callbacks]
-    Webhooks --> API
+    Traveller[Traveller browser] --> Web[React web app]
+    Operator[Operator browser] --> Web
+    Web --> API[FastAPI API]
+    ATSMS[Africa's Talking SMS] <--> Worker[SMS outbox worker]
+    ATUSSD[Africa's Talking USSD] --> API
 
-    API --> Concierge[Concierge service]
+    API --> Catalog[Destination catalog]
+    API --> Concierge[Grounded concierge]
     API --> Booking[Booking service]
-    API --> Conversation[Conversation service]
-    Booking --> Notification[Notification service]
-
-    Concierge --> LLM[LLM adapter]
-    Booking --> Provider[Tour operator or inventory adapter]
-    Notification --> AT
-
-    Concierge --> DB[(PostgreSQL)]
+    API --> Auth[Operator security]
+    API --> USSD[Deterministic USSD menus]
+    Concierge --> OptionalLLM[Optional local Ollama ranking]
+    Catalog --> DB[(PostgreSQL)]
     Booking --> DB
-    Conversation --> DB
-    Notification --> DB
+    Auth --> DB
+    USSD --> DB
+    Worker --> DB
+
+    subgraph Deployment choices
+        Compose[Nginx + API + PostgreSQL]
+        Marketplace[One frontend/API image + external PostgreSQL]
+    end
 ```
 
-### Client channels
+## Component boundaries
 
-- **Traveller web app:** destination discovery, concierge chat, and booking-request tracking.
-- **Operator dashboard:** review requests, publish availability or offers, and update booking states.
-- **SMS:** asynchronous, low-bandwidth concierge messages and booking notifications.
-- **USSD:** short, menu-based discovery and booking-request capture on basic phones.
+- **React client:** landing page, catalog, planner/chat, booking form, operator login, and protected dashboard. It never stores operator passwords; the short-lived access token is kept in per-tab `sessionStorage`, removed on sign-out, and never placed in URLs or long-lived `localStorage`.
+- **FastAPI transport:** Pydantic validation, route-level dependencies, CORS allowlist, form parsing, and response serialization.
+- **Catalog service:** active destinations, search/filter/pagination, repeatable seed data, and public reference content.
+- **Concierge service:** deterministic recommendations and optional ranking through a narrow provider interface. It cannot invoke booking actions.
+- **Booking service:** idempotent public submission and the authoritative state machine. It writes state and history atomically.
+- **Operator security:** Argon2 password verification, signed short-lived tokens with issuer/audience/expiry checks, active-account checks, token-version revocation, and organization-scoped resource lookup.
+- **Notification service:** consent-aware fixed templates and a transactional outbox. Provider calls happen after the booking transaction commits.
+- **USSD service:** synchronous, deterministic English/Kiswahili menus derived from cumulative input. It performs no LLM or booking lookup.
+- **Provider adapters:** Africa's Talking Sandbox/production SDK, PII-safe local SMS provider, and optional Ollama JSON ranking.
+- **Persistence:** SQLAlchemy 2.x sessions and explicit Alembic migrations; application startup never creates schema implicitly.
 
-### Backend modules
+## Data model
 
-- **Transport layer:** FastAPI routes, request validation, authentication, rate limits, and response serialization.
-- **Concierge service:** conversation orchestration, retrieval of trusted tourism content, and controlled LLM calls.
-- **Conversation service:** channel-neutral sessions and messages so a traveller can be assisted consistently.
-- **Booking service:** booking commands, state transitions, validation, availability checks, and audit history.
-- **Notification service:** message templates, delivery attempts, retry policy, and provider status updates.
-- **Provider adapters:** narrow interfaces for the LLM, Africa's Talking, and tour-operator or inventory systems.
-- **Persistence layer:** repositories and transactions backed by PostgreSQL.
+The implemented schema contains:
 
-### Initial data domains
+- `operators`: organizations, active flag, and a synthetic-demo marker
+- `operator_users`: organization identity, Argon2 password hash, active flag, token version, and timestamps
+- `destinations`: curated public content, category, region, featured/active state, and optional operator assignment
+- `booking_requests`: reference, destination, assigned organization, travel data, minimized customer/contact data, consent, idempotency fingerprint, current status, and timestamps
+- `booking_status_history`: old/new status, actor type/reference, reason, and timestamp
+- `booking_quotes`: one synthetic quote per booking, amount/currency/expiry/terms, and explicit demo disclaimer
+- `sms_notifications`: deduplicated event, safe template metadata, delivery state, attempt/lease fields, controlled error code, provider identifier, and timestamps
 
-- **Implemented:** operators, operator identities, curated destinations, booking requests, traveller contact preferences and consent, booking status history, synthetic demo quotes, and idempotency keys.
-- **Planned:** activities, accommodation inventory, offers, conversations, messages, notifications, provider identifiers, and general integration events.
+`DATABASE_URL` must use PostgreSQL in deployed environments. Tests use isolated temporary SQLite files for speed plus a destructive PostgreSQL integration test only when `TEST_DATABASE_URL` points to a disposable database.
 
-## Persistence and migrations
+## Public and protected API boundaries
 
-SQLAlchemy 2.x models define operators, operator users, destinations, booking requests, booking status history, and one-to-one synthetic booking quotes. Production configuration uses a PostgreSQL URL supplied through `DATABASE_URL`; FastAPI creates request-scoped sessions and disposes its connection pool during shutdown.
+| Method | Path | Boundary |
+| --- | --- | --- |
+| `GET` | `/api/health` | Public process health |
+| `GET` | `/api/v1/destinations` | Public active catalog search/filter |
+| `GET` | `/api/v1/destinations/{id}` | Public active destination detail |
+| `POST` | `/api/v1/concierge/plan` | Public, validated, catalog-grounded plan |
+| `POST` | `/api/v1/concierge/chat` | Public, bounded catalog question |
+| `POST` | `/api/v1/bookings` | Public submission; idempotency header required |
+| `POST` | `/api/v1/ussd` | Public Africa's Talking form callback; read-only |
+| `POST` | `/api/v1/auth/token` | Existing operator login; no registration |
+| `GET` | `/api/v1/operator/me` | Authenticated active operator identity |
+| `GET` | `/api/v1/operator/bookings` | Organization-scoped PII-minimized queue |
+| `GET` | `/api/v1/operator/bookings/{reference}` | Owning organization only |
+| `POST` | `/api/v1/operator/bookings/{reference}/quote` | Synthetic organization only; audited |
+| `POST` | `/api/v1/operator/bookings/{reference}/reject` | Valid operator state only; audited |
+| `POST` | `/api/v1/operator/bookings/{reference}/confirm` | Only from `pending_confirmation`; audited |
 
-Alembic owns schema changes. The migration chain creates the Phase 2 domain schema, adds operator identities and organization flags, and adds synthetic booking quotes. Revisions define relationships, uniqueness rules, check constraints, indexes, and timestamps. Application startup does not create tables implicitly. Operators must run `alembic upgrade head` before serving traffic.
-
-The explicit destination seed operation inserts Serengeti National Park, Ngorongoro Conservation Area, Mount Kilimanjaro, Zanzibar, and Tarangire National Park. It is idempotent by destination slug and contains no live availability, pricing, or partnership data.
-
-## Authentication and authorization boundary
-
-Operator passwords are hashed with Argon2 through `pwdlib`; plaintext passwords are never stored. Login accepts the OAuth2 password form and issues a short-lived HS256 access token containing a user identifier, operator identifier, token version, unique token identifier, issued/not-before/expiry timestamps, issuer, and audience. Decoding fixes the permitted algorithm and requires every claim, signature, expiry, issuer, and audience to validate.
-
-Authentication then reloads the operator user and organization from the database on every protected request. Inactive users and revoked token versions receive `401`; an inactive organization receives `403`. Each booking query also constrains the resource by the authenticated organization identifier. Cross-organization and nonexistent booking references both return `404` so the endpoint does not disclose another organization's records.
-
-No public registration endpoint exists. A development-only CLI creates an explicitly synthetic operator from locally supplied credentials and can assign only unassigned curated destinations. Staging and production reject missing or weak signing secrets, the default local database URL, and debug mode.
-
-## API boundaries
-
-All JSON responses will use documented schemas. Business rules belong in services rather than route handlers, and database models must not be returned directly.
-
-| Boundary | Proposed endpoint | Responsibility | Access |
-| --- | --- | --- | --- |
-| Platform health | `GET /api/health` | Report that the API process is available | Public; implemented |
-| Destination catalog | `GET /api/v1/destinations` | Search, filter, and paginate active curated destinations | Public; implemented |
-| Destination detail | `GET /api/v1/destinations/{id}` | Return one active curated destination | Public; implemented |
-| Booking submission | `POST /api/v1/bookings` | Validate and create an idempotent pending request | Public submission; implemented |
-| Operator login | `POST /api/v1/auth/token` | Exchange an existing operator identity for a short-lived token | Public login; implemented |
-| Operator identity | `GET /api/v1/operator/me` | Resolve the current active user and organization | Operator token; implemented |
-| Operator queue | `GET /api/v1/operator/bookings` | List assigned requests with PII-minimized summaries | Operator token; implemented |
-| Operator booking detail | `GET /api/v1/operator/bookings/{reference}` | Return assigned booking detail, quote, and audit history | Assigned operator; implemented |
-| Synthetic quote | `POST /api/v1/operator/bookings/{reference}/quote` | Record a clearly labelled demo quote and move to `quoted` | Assigned demo operator; implemented |
-| Operator rejection | `POST /api/v1/operator/bookings/{reference}/reject` | Reject from a permitted state with an audit reason | Assigned operator; implemented |
-| Operator confirmation | `POST /api/v1/operator/bookings/{reference}/confirm` | Confirm only from `pending_confirmation` | Assigned operator; implemented |
-| Concierge | `POST /api/v1/conversations/{id}/messages` | Accept a traveller message and return or queue an assistant response | Authenticated session; planned |
-| Customer booking access | No route exposed | Await verified account or out-of-band challenge delivery | Deferred by security decision |
-| SMS callback | `POST /api/webhooks/africas-talking/sms` | Normalize an inbound SMS or delivery update | Provider callback controls; planned |
-| USSD callback | `POST /api/ussd` | Advance a short-lived USSD menu session | Provider callback controls; planned |
-
-External callbacks must be rate-limited, validated against provider-supported controls, assigned an internal correlation ID, and processed idempotently. The API must acknowledge callbacks quickly; work that does not affect the immediate response should run outside the request path.
+Missing and cross-organization booking references both return `404`, preventing resource-existence leaks. There is no public booking list/detail, arbitrary SMS endpoint, customer status lookup, operator self-registration, or customer action endpoint.
 
 ## Booking workflow
 
-The booking service, not the LLM, owns the workflow and allowed transitions.
-
-Public submission creates a request directly in `pending_availability`; it never creates a confirmed booking. The internal workflow implements the remaining state edges shown below.
-
 ```mermaid
 stateDiagram-v2
-    [*] --> Draft
-    Draft --> PendingAvailability: traveller submits request
-    PendingAvailability --> Quoted: operator confirms an offer
-    PendingAvailability --> Rejected: unavailable or invalid
-    Quoted --> PendingConfirmation: traveller selects offer
-    PendingConfirmation --> Confirmed: operator/provider confirms
-    Quoted --> Expired: quote deadline passes
-    PendingConfirmation --> Rejected: confirmation fails
-    Confirmed --> Cancelled: permitted cancellation
-    Rejected --> [*]
-    Expired --> [*]
-    Cancelled --> [*]
+    [*] --> PendingAvailability: public request
+    PendingAvailability --> Quoted: synthetic operator quote
+    PendingAvailability --> Rejected: operator decision
+    Quoted --> PendingConfirmation: verified customer action (internal only)
+    Quoted --> Expired: quote deadline
+    PendingConfirmation --> Confirmed: operator decision
+    PendingConfirmation --> Rejected: operator decision
+    Confirmed --> Cancelled: authorized cancellation (internal only)
 ```
 
-1. The concierge or form collects destination, dates, party size, preferences, contact channel, and consent.
-2. The booking service validates required data and creates a draft using a client-provided idempotency key.
-3. Submission moves the request to `pending_availability` and asks an operator or inventory adapter for availability.
-4. An available option becomes a time-limited quote; unavailable or invalid requests are rejected with a reason.
-5. The traveller selects a quote. Any payment workflow introduced later must use a dedicated payment provider and must never expose payment credentials to the LLM.
-6. The operator or booking provider confirms the reservation before the state becomes `confirmed`.
-7. The notification service sends an SMS or web update and records the provider message ID and delivery state.
-8. Every implemented transition records the actor type and reference, timestamp, and reason for auditability. A cross-service correlation identifier remains planned for external integrations.
+The public endpoint creates `pending_availability`, never `confirmed`. Direct operator confirmation from `pending_availability` or `quoted` is rejected. A verified-customer context is required for the internal `quoted → pending_confirmation` edge; no HTTP route exposes that edge in this MVP because a booking reference or contact detail is not identity proof.
 
-Commands must reject invalid state changes, duplicate callbacks, expired quotes, and unauthorized access. PostgreSQL transactions should update the booking and its status history atomically.
+Every accepted state transition locks the request, validates the actor/resource/state, updates the current value, writes a history row, and schedules any eligible SMS event in the same transaction. Quote expiry and rejection reasons are validated. The LLM has no path to this service.
 
-Phase 3 exposes the operator-permitted edges through organization-scoped HTTP endpoints. An assigned operator can quote or reject `pending_availability`, reject `pending_confirmation`, and confirm only `pending_confirmation`; direct confirmation from `pending_availability` is rejected. Every accepted action writes status history in the same transaction. Quote records are available only to explicitly synthetic demo operators and carry disclaimers that they are neither live availability nor real reservation offers.
+## Grounded concierge boundary
 
-Customer transitions remain internal because the application cannot yet bind a caller to a booking through a verified account or communication channel. Tests can simulate a verified customer context to prove the complete state graph, but the production API exposes no customer lookup, acceptance, cancellation, or status-change route.
+The fallback planner is the default and works offline. It:
 
-## Phase 3 security and privacy boundaries
+1. Loads active destinations from the catalog.
+2. Scores only supported interests, optional region, and featured state.
+3. Returns at most four known destinations and 1–14 itinerary days.
+4. Treats TZS budget as planning context, never as a source of price estimates.
+5. Emits a disclaimer that the result is not price, availability, or reservation.
 
-- Booking submission responses omit names, email addresses, phone numbers, consent records, and special requests.
-- The public API exposes no booking list, detail, audit-history, customer decision, or status-change endpoint.
-- A client-supplied idempotency key can replay only the same normalized booking input; conflicting reuse is rejected.
-- Destination identifiers must resolve to active catalog records before a booking is accepted.
-- Operator list responses omit customer PII; protected detail is available only to the assigned, active organization.
-- Missing, malformed, expired, wrong-audience, wrong-issuer, revoked, and inactive-user tokens are rejected without executing operator actions.
-- Customer and operator workflow actors carry resource-scoped authorization facts rather than relying on references supplied by callers.
-- Operator-only transitions include quoting, rejection, and confirmation. The LLM and unauthenticated callers cannot confirm bookings.
+When `AI_PROVIDER=ollama`, the provider receives only allowed destination slugs and bounded preferences. Its only accepted output is a unique ordering of known slugs. Descriptions, facts, itinerary text, and safety wording still come from the application. Unknown/duplicate slugs, malformed output, timeout, or provider failure fall back to deterministic ranking and report `rule_based_fallback`. Injection-like chat instructions are ignored and produce a bounded safety response.
 
-Phase 3's customer-access threat model and deferral decision are documented in [customer-booking-access.md](customer-booking-access.md). Booking references and contact details are not authentication factors, so customer lookup and action endpoints remain absent until a verified account or out-of-band challenge channel exists.
-
-## Africa's Talking integration
-
-### SMS flow
+## SMS delivery architecture
 
 ```mermaid
 sequenceDiagram
-    participant T as Traveller
-    participant AT as Africa's Talking
-    participant API as FastAPI callback
-    participant C as Conversation service
-    participant N as Notification service
-
-    T->>AT: Send SMS
-    AT->>API: Inbound message callback
-    API->>C: Normalize and deduplicate message
-    API-->>AT: Prompt acknowledgement
-    C->>N: Queue channel-appropriate reply
-    N->>AT: Send outbound SMS
-    AT-->>API: Delivery status callback
-    API->>N: Record delivery outcome
+    participant API as Booking transaction
+    participant DB as PostgreSQL outbox
+    participant W as Worker
+    participant AT as SMS provider
+    API->>DB: Save state + deduplicated event
+    API->>DB: Commit
+    W->>DB: Claim due row with lease
+    W->>DB: Commit claim
+    W->>AT: Submit fixed template outside transaction
+    AT-->>W: Provider result
+    W->>DB: accepted / retry / failed
 ```
 
-- Convert provider fields into a channel-neutral message model and retain the provider ID for deduplication.
-- Normalize phone numbers to an agreed format before lookup, and store only the data required for the service.
-- Keep SMS replies concise and split messages deliberately to control cost and readability.
-- Retry only transient failures with bounded backoff; permanent failures should be visible to operators.
-- Use separate sandbox and production settings, sender configuration, and callback URLs.
+Scheduling and sending both require explicit consent, phone preference, and a valid international number. Fixed English/Kiswahili templates omit names, email, requests, and travel detail. Workers use `FOR UPDATE SKIP LOCKED` on PostgreSQL, claim tokens, leases, bounded exponential retry, and PII-free result logs. `--drain` is suitable for a bounded job; the default command polls continuously.
 
-### USSD flow
+`SMS_PROVIDER=local` performs validation without a network call and is rejected in staging/production. `SMS_PROVIDER=africastalking` uses the official SDK and requires an internally consistent Sandbox or production credential set. Provider acceptance is recorded as `accepted`, not `delivered`.
 
-USSD is synchronous. Africa's Talking sends the session identifier, service code, phone number, and accumulated user input to the callback. The application will load the short-lived session, apply a deterministic menu transition, and return either `CON` to continue or `END` to close the session.
+The remaining rare at-least-once window is a worker crash after provider acceptance but before the database update because this SDK send operation does not accept SafariSmart's idempotency key. Delivery-report callbacks remain disabled until provider-supported authenticity controls are designed.
 
-The callback path must not wait for an LLM response. Initial menus should support destination browsing and booking-request capture with small, numbered choices. Session state can begin in PostgreSQL with an expiry timestamp; a dedicated low-latency store can be introduced if traffic or response-time measurements justify it.
+## USSD boundary
 
-### Integration security and operations
+Africa's Talking sends `sessionId`, `serviceCode`, `phoneNumber`, and cumulative `text` as form fields to `/api/v1/ussd`. SafariSmart validates lengths/formats, hashes the session identifier for a process-local sliding-window limit, stores none of the submitted subscriber data, and returns an Africa's Talking-compatible `CON` or `END` body.
 
-- Load credentials only from runtime secrets or environment variables; never store them in source control.
-- Use HTTPS callback URLs and the strongest callback authentication or source validation supported by the provider configuration.
-- Redact API keys, phone numbers, and message content from routine logs.
-- Track callback latency, send success, delivery status, retry count, and cost-related metrics.
-- Correlate inbound events, booking commands, LLM calls, and outbound messages without exposing secrets.
+Destination rows are loaded only when the current menu needs them. A database error produces a generic terminal response. The endpoint never invokes the LLM, exposes customer/booking data, accepts payment, or claims availability/prices. A production edge should add a shared limiter and the strongest callback/source controls supported by the provider.
 
-## LLM boundary
+## Deployment models
 
-The LLM adapter receives the minimum context needed for a response. It may suggest destinations, summarize verified content, and identify booking details, but all tool inputs must be schema-validated. The booking service revalidates extracted values and enforces authorization and state transitions.
+### Local Compose
 
-Prompts and retrieved content are untrusted input. The system should resist prompt injection, avoid placing secrets in model context, label uncertain information, and provide a human handoff when confidence or safety requirements are not met.
+`compose.yaml` runs PostgreSQL 16, a FastAPI image, and an Nginx-served frontend. It uses a persistent named database volume, health checks, migrations and destination seed on API startup, and an optional `sms-worker` profile. Credentials are supplied from the ignored local environment.
 
-## Verification and CI
+### Single-image Marketplace package
 
-The default test suite uses isolated SQLite databases for fast service, route, validation, security, and migration coverage. A separate PostgreSQL integration test is enabled only when `TEST_DATABASE_URL` is present. It requires an already migrated disposable database, verifies the database is at the Alembic head, then exercises operator login, organization isolation, quoting, invalid direct confirmation, verified-customer state simulation, confirmation, and audit history.
+`marketplace/Dockerfile` uses a Node build stage and a non-root Python 3.12 runtime. FastAPI validates and serves the compiled Vite distribution, preserves API `404` responses, applies migrations, loads repeatable seed data, respects the platform `PORT`, and exposes `/api/health`. PostgreSQL remains an external per-instance dependency.
 
-GitHub Actions runs on Python 3.12 with an isolated PostgreSQL service. It installs the backend development dependencies, applies `alembic upgrade head`, and runs the complete suite. The integration test deletes application-domain rows before and after its run, so its database must never be shared with valuable or production data.
+### Configuration safety
 
-## Deployment direction
+Production rejects missing/weak `AUTH_SECRET_KEY`, the implicit local database URL, debug mode, and the local SMS provider. Secrets belong in the runtime's secret store, not the image, repository, callback URL, logs, or frontend bundle. Each customer instance should receive separate database and provider credentials.
 
-Docker will package the frontend and backend, with PostgreSQL provided as a managed service or separate container. Deployments should expose only the web/API entry points, run database migrations as a controlled release step, and include liveness and readiness checks. Production secrets must come from the deployment platform rather than committed files.
+## Verification
+
+Two GitHub Actions workflows cover the project:
+
+- Backend CI: Python 3.12, PostgreSQL service, Alembic upgrade, and the full test suite including PostgreSQL integration.
+- Frontend and Container CI: Node.js 24 install/test/build/audit, Compose validation and smoke test, and single-image build.
+
+Local verification includes the isolated backend suite, frontend tests/typecheck/build, dependency audit, migration checks, and browser smoke tests. Container execution depends on Docker availability and must not be reported as locally verified when Docker is absent.
+
+## Deliberate limitations
+
+- No live inventory, real operator partnership, accommodation/restaurant/transport data, payment, or external reservation API
+- No customer authentication, lookup, quote acceptance, cancellation, or status history API
+- No durable chat history or cross-channel customer identity
+- No production operator administration, password reset, MFA, or automated signing-key rotation
+- No authenticated delivery-report or inbound SMS callback
+- Process-local rather than distributed USSD rate limiting
+- Ollama is optional ranking assistance, not a source of tourism facts or booking authority
+
+The customer-access threat decision is in [customer-booking-access.md](customer-booking-access.md); channel operations are in [sms-notifications.md](sms-notifications.md) and [ussd-tourism.md](ussd-tourism.md).

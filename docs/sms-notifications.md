@@ -22,13 +22,14 @@ SMS is sandbox-first and disabled by default:
 
 ```dotenv
 SMS_ENABLED=false
+SMS_PROVIDER=africastalking
 AFRICASTALKING_ENVIRONMENT=sandbox
 AFRICASTALKING_USERNAME=
 AFRICASTALKING_API_KEY=
 AFRICASTALKING_SENDER_ID=
 ```
 
-Credentials are loaded from the ignored root `.env` file. The API key is represented by Pydantic `SecretStr`; it must never be printed, logged, placed in an exception, or committed.
+Credentials are loaded from the ignored root `.env` file. The API key is represented by Pydantic `SecretStr`; it must never be printed, logged, placed in an exception, or committed. For an offline local demonstration, set `SMS_PROVIDER=local` with `SMS_ENABLED=true`. That provider validates the same phone/message boundary but performs no network request and logs no PII; it is rejected in staging and production.
 
 When SMS is enabled, username and API key must both exist. Sandbox configuration requires the username `sandbox`; production configuration rejects that username. Blank, short, and placeholder API keys are rejected. The Sandbox test command additionally refuses to run when the configured provider environment is production.
 
@@ -67,6 +68,22 @@ The provider does not expose an idempotency key in this SDK operation. A worker 
 
 Only controlled error codes are stored. Provider exception text, credentials, recipient numbers, and message bodies are not persisted in the outbox or routine worker results.
 
+### Worker commands
+
+Run continuously from `backend/`:
+
+```bash
+python -m app.cli.notification_worker
+```
+
+Process only currently due rows and exit:
+
+```bash
+python -m app.cli.notification_worker --drain --max-messages 100
+```
+
+Continuous mode polls with a five-second default delay; `--poll-seconds` changes it. The worker checks configuration and database connectivity before claiming a row. Its summaries contain counts and controlled state only, never recipients or message bodies. Docker Compose exposes the worker through the optional `sms` profile.
+
 ## Sandbox Simulator check
 
 Africa's Talking documents that Sandbox interactions occur in the Simulator rather than on a real handset. The official Python SDK requires the Sandbox username to be `sandbox`.
@@ -104,7 +121,7 @@ Official references:
 Before live SMS is enabled, SafariSmart still needs:
 
 - A production Africa's Talking application, API key, approved sender identity, balance, and country-specific compliance.
-- A separately deployed worker that repeatedly invokes the outbox processing service with monitoring and graceful shutdown.
+- Deployment of the implemented worker as a separate continuously supervised process, with queue-age/failure monitoring and graceful shutdown.
 - An authenticated or otherwise provider-validated delivery-report callback route that calls the internal delivery-state recorder.
 - Secret rotation, metrics, alerts for queue age and failure rate, and an operational retry/dead-letter policy.
 - Load and concurrency validation against the production PostgreSQL configuration.

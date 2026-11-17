@@ -1,4 +1,4 @@
-# SafariSmart USSD Tourism Discovery (Phase 5 MVP)
+# SafariSmart USSD Tourism Discovery
 
 ## Contract
 
@@ -9,7 +9,7 @@ Africa's Talking POSTs `application/x-www-form-urlencoded` to the public USSD ca
 - Response: `text/plain`, beginning with `CON ` (more input) or `END ` (terminate)
 - `text` is cumulative and `*`-delimited: `""`, `"1"`, `"1*1"`, `"1*1*1"`.
 
-The first screen selects English or Kiswahili. Users can browse the first five active curated destinations from the existing public catalog, read booking information, or view help. The callback does **not** look up customers, expose private booking records, create bookings, make payments, or claim availability or prices. Language and screen progression are derived from the cumulative `text`; no subscriber identifiers or in-memory session state are stored.
+The first screen selects English or Kiswahili. Users can browse the first five active curated destinations from the existing public catalog, read booking information, or view help. The callback does **not** look up customers, expose private booking records, create bookings, make payments, or claim availability or prices. Language and screen progression are derived from the cumulative `text`; no subscriber identifiers are stored. A bounded in-memory limiter retains only a hash of the opaque session ID and recent timestamps; it never retains the phone number, service code, or menu input.
 
 ## Local development
 
@@ -42,7 +42,7 @@ GitHub Actions can **send outbound sandbox SMS**, but a USSD callback requires a
 
 In the Africa's Talking Sandbox dashboard, create a USSD channel/service code, set its callback to `https://YOUR-PUBLIC-HOST/api/v1/ussd`, connect a virtual phone in the Sandbox Simulator, then dial the assigned *sandbox* USSD code. Do not assume the documentation's example code is your allocated code.
 
-A production callback needs additional operational controls: review webhook authentication options with the provider, apply edge rate limiting and abuse protection, monitor failures without logging phone numbers or session identifiers, and configure a stable HTTPS deployment. Avoid customer-sensitive USSD functionality until identity verification is designed.
+A production callback needs additional operational controls: review webhook authentication options with the provider, apply shared edge rate limiting and abuse protection, monitor failures without logging phone numbers or session identifiers, and configure a stable HTTPS deployment. The implemented process-local sliding-window limiter is defense in depth for the single-process MVP, not a distributed edge control. Avoid customer-sensitive USSD functionality until identity verification is designed.
 
 ## Scope limits
 

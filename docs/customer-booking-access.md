@@ -1,6 +1,6 @@
 # Customer Booking Access Security Decision
 
-## Phase 3 decision
+## Current MVP decision
 
 Customer booking lookup and acceptance endpoints are deferred. SafariSmart currently has no authenticated customer account and no verified email or SMS delivery path. A booking reference, email address, or phone number can be copied, guessed, forwarded, or exposed in logs and therefore cannot prove customer identity, alone or in combination.
 
