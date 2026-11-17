@@ -1,0 +1,80 @@
+name: Frontend and Container CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: React / TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Build production frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Audit production dependency tree
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
+
+  containers:
+    name: Docker Compose smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Generate ephemeral local-only credentials
+        shell: bash
+        run: |
+          echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+          echo "AUTH_SECRET_KEY=$(openssl rand -hex 48)" >> "$GITHUB_ENV"
+          echo "WEB_PORT=8080" >> "$GITHUB_ENV"
+
+      - name: Validate Compose model
+        run: docker compose config --quiet
+
+      - name: Build and start the local MVP stack
+        run: docker compose up --build --detach db api frontend
+
+      - name: Verify frontend and proxied API health
+        shell: bash
+        run: |
+          curl --fail --show-error --retry 20 --retry-delay 3 \
+            http://127.0.0.1:8080/ >/dev/null
+          curl --fail --show-error --retry 20 --retry-delay 3 \
+            http://127.0.0.1:8080/api/health | grep '"status":"ok"'
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --no-color db api frontend
+
+      - name: Stop local MVP stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
