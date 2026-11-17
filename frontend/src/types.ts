@@ -29,12 +29,19 @@ export type TravelInterest =
   | "culture"
   | "nature";
 
+export type PlanningMode =
+  | "single_destination"
+  | "multiple_destinations"
+  | "explore_tanzania";
+
 export interface TripPlanRequest {
   days: number;
   party_size: number;
   interests: TravelInterest[];
   budget_style: "value" | "comfort" | "premium";
   budget_tzs?: number;
+  planning_mode: PlanningMode;
+  destination_ids: string[];
   preferred_region?: string;
   language: "en" | "sw";
 }
@@ -45,6 +52,7 @@ export interface PlanDestination extends Pick<Destination, "id" | "name" | "slug
 
 export interface TripPlan {
   generation_mode: "rule_based_fallback" | "local_ollama";
+  planning_mode: PlanningMode;
   title: string;
   summary: string;
   destinations: PlanDestination[];
