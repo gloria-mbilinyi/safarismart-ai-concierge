@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: safarismart-ai-concierge
+    runtime: docker
+    plan: free
+    branch: main
+    dockerContext: .
+    dockerfilePath: ./marketplace/Dockerfile
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: API_V1_PREFIX
+        value: /api
+      - key: FRONTEND_ORIGINS
+        value: https://safarismart-ai-concierge.onrender.com
+      - key: AUTH_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: AI_PROVIDER
+        value: fallback
+      - key: EMAIL_ENABLED
+        value: "true"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: RESEND_FROM_NAME
+        value: SafariSmart AI Concierge
+      - key: SMS_ENABLED
+        value: "false"
+      - key: SMS_PROVIDER
+        value: africastalking
+      - key: AFRICASTALKING_ENVIRONMENT
+        value: sandbox
+      - key: BOOKING_RATE_LIMIT_PER_MINUTE
+        value: "5"
+      - key: NOTIFICATION_DISPATCH_BATCH_SIZE
+        value: "10"
+      - key: NOTIFICATION_DISPATCH_INTERVAL_SECONDS
+        value: "30"
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
