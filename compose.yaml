@@ -1,0 +1,83 @@
+# Local hackathon demo composition. It is not a production deployment manifest.
+name: safarismart
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: safarismart
+      POSTGRES_USER: safarismart
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your local .env file}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safarismart -d safarismart"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://safarismart:${POSTGRES_PASSWORD}@db:5432/safarismart
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in your local .env file}
+      FRONTEND_ORIGINS: http://localhost:${WEB_PORT:-8080},http://127.0.0.1:${WEB_PORT:-8080}
+      AI_PROVIDER: ${AI_PROVIDER:-fallback}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      SMS_ENABLED: ${SMS_ENABLED:-false}
+      AFRICASTALKING_ENVIRONMENT: ${AFRICASTALKING_ENVIRONMENT:-sandbox}
+      AFRICASTALKING_USERNAME: ${AFRICASTALKING_USERNAME:-}
+      AFRICASTALKING_API_KEY: ${AFRICASTALKING_API_KEY:-}
+      AFRICASTALKING_SENDER_ID: ${AFRICASTALKING_SENDER_ID:-}
+    command:
+      - sh
+      - -c
+      - >-
+        python -m alembic upgrade head &&
+        python -m app.seed.destinations &&
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  sms-worker:
+    profiles: ["sms"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://safarismart:${POSTGRES_PASSWORD}@db:5432/safarismart
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in your local .env file}
+      SMS_ENABLED: "true"
+      AFRICASTALKING_ENVIRONMENT: ${AFRICASTALKING_ENVIRONMENT:-sandbox}
+      AFRICASTALKING_USERNAME: ${AFRICASTALKING_USERNAME:-}
+      AFRICASTALKING_API_KEY: ${AFRICASTALKING_API_KEY:-}
+      AFRICASTALKING_SENDER_ID: ${AFRICASTALKING_SENDER_ID:-}
+    command: ["python", "-m", "app.cli.notification_worker"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
