@@ -89,6 +89,10 @@ Each installation should have an isolated database and signing secret. Secrets m
 | `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | No | `30` by default; allowed range 5–1,440 |
 | `AUTH_ISSUER` | No | Default `safarismart-api` |
 | `AUTH_AUDIENCE` | No | Default `safarismart-operator` |
+| `EMAIL_ENABLED` | No | Default `false`; enable only after Resend sender verification |
+| `RESEND_API_KEY` | If email enabled | Protected restricted key; never expose to the browser |
+| `RESEND_FROM_EMAIL` | If email enabled | Sender on a verified domain |
+| `RESEND_FROM_NAME` | No | Default `SafariSmart AI Concierge` |
 | `SMS_ENABLED` | No | Default `false`; enable only after provider setup |
 | `SMS_PROVIDER` | If SMS enabled | Use `africastalking` in production; `local` is rejected |
 | `AFRICASTALKING_ENVIRONMENT` | If SMS enabled | `sandbox` for testing or `production` for live credentials |
@@ -99,31 +103,33 @@ Each installation should have an isolated database and signing secret. Secrets m
 | `OLLAMA_BASE_URL` | If Ollama | Reachable private HTTP(S) endpoint |
 | `OLLAMA_MODEL` | If Ollama | Default `qwen2.5:3b`; model must be provisioned separately |
 | `OLLAMA_TIMEOUT_SECONDS` | No | Default `5`, bounded to 0.5–30 seconds |
+| `BOOKING_RATE_LIMIT_PER_MINUTE` | No | Default `5` per client on one process |
+| `BOOKING_RATE_LIMIT_MAX_CLIENTS` | No | Default `10000` in-memory client keys |
 | `USSD_RATE_LIMIT_PER_MINUTE` | No | Default `30` per opaque session on one process |
 | `USSD_RATE_LIMIT_MAX_SESSIONS` | No | Default `10000` in-memory session hashes |
 
-`FRONTEND_DIST_PATH` is set inside the image and should not be overridden. `SMS_PROVIDER=local`, missing signing keys, the implicit local database URL, and debug mode are rejected in production.
+`FRONTEND_DIST_PATH` is set inside the image and should not be overridden. `SMS_PROVIDER=local`, missing signing keys, the implicit local database URL, incomplete Resend configuration, and debug mode are rejected in production.
 
 ### PostgreSQL requirement
 
 The application requires a PostgreSQL database reachable from its container. The provided image does not bundle a database. The instance identity must have permission to run the included Alembic migrations and read/write only its own SafariSmart schema/database. Use backups, TLS, connection limits, and credential rotation appropriate to the selected database service.
 
-### Worker requirement
+### Dispatcher requirement
 
-The web image serves the API and frontend. Consent-aware notifications remain queued until the same image is run with this command as a separate worker process:
+The web image serves the API and frontend. It performs bounded post-commit, startup, and periodic notification drains while active; pending work remains durable in PostgreSQL when the instance sleeps. The same image can run a continuously supervised dispatcher when the platform supports a separate worker process:
 
 ```bash
 python -m app.cli.notification_worker
 ```
 
-If the Marketplace currently supports only one process per plugin instance, leave `SMS_ENABLED=false` unless a supported scheduled/worker deployment is configured. Do not claim booking notifications are live merely because the web image is running.
+If the Marketplace supports only one process per plugin instance, bounded best-effort dispatch is available while that process is active. Clearly disclose this limitation; leave each provider disabled until its credentials and sender are valid, and do not claim notification delivery merely because the web image is running.
 
 ## Privacy, consent, and security stance
 
 - Booking submission requires explicit customer consent and validates the selected contact channel.
 - Public responses omit names, phone numbers, email addresses, consent details, special requests, and audit history.
-- SMS scheduling and sending recheck consent and phone preference; fixed templates minimize content.
-- Routine worker and USSD paths do not log phone numbers, message bodies, session identifiers, or credentials.
+- Email/SMS scheduling and sending recheck consent, selected channel, and matching recipient; fixed bilingual templates minimize content and never fall back to another channel.
+- Routine dispatcher and USSD paths do not log recipients, message bodies, session identifiers, or credentials.
 - Operator users are provisioned out of band; there is no public self-registration.
 - Operator resources are isolated by organization, with uniform not-found behavior for missing/cross-organization records.
 - A booking reference, email, or phone number is not accepted as customer authentication. Customer lookup and actions are intentionally absent.
@@ -181,7 +187,8 @@ Marketplace fields and policies can change. Recheck the live form immediately be
 2. Owner obtains Marketplace and registry credentials.
 3. Build and test the image where Docker is available.
 4. Owner explicitly approves the external registry push and Marketplace submission.
-5. Configure an isolated PostgreSQL database and, if supported, a worker process.
-6. Configure durable production HTTPS callbacks and authorized Africa's Talking live products only after provider approval.
+5. Configure an isolated PostgreSQL database and, if supported, a continuously supervised dispatcher process.
+6. Configure a verified Resend sender and restricted key, or leave email disabled.
+7. Configure durable production HTTPS callbacks and authorized Africa's Talking live products only after provider approval.
 
 Until those actions occur, the accurate status is: **source and submission package prepared; not published or production-hosted**.

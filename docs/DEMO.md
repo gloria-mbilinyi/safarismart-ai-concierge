@@ -57,24 +57,26 @@ Point to the channel cards and the visible synthetic/demo wording.
 
 Open **Explore** and search for `Zanzibar` or filter the catalog. Explain that all five records are curated reference content from the database, not scraped live inventory, prices, or partnership claims.
 
-### 0:55–1:35 — Grounded planner
+### 0:55–1:35 — Context-aware concierge and Zanzibar plan
 
-Open **Trip planner**. Choose 5 days, 2 travellers, wildlife + beach, and a TZS budget such as `2500000`. Generate the plan.
+Open **AI Concierge**, ask `Tell me about Zanzibar`, and then ask `How long should I stay there?` Show that the second turn retains the Zanzibar context only within this browser tab. Select **New chat** to demonstrate the visible reset control.
+
+Open **Trip planner**, choose **One destination**, select Zanzibar, 5 days, 2 travellers, and beach/culture interests, then generate the plan.
 
 Point to:
 
 - `Rule-based fallback` when no local model is configured
-- Named destinations that exist in the catalog
+- Zanzibar as the only named destination in the explicit single-destination plan
 - The day-by-day high-level itinerary
 - The disclaimer that budget is context and the result is not price, availability, or reservation
 
-Say that an optional local Ollama model may reorder only known destination slugs; it cannot invent catalog facts or take booking actions.
+Say that optional local Ollama prose remains constrained to approved catalog facts; it cannot invent prices or availability, change the selected destination, or take booking actions.
 
 ### 1:35–2:10 — Consent-aware request
 
-Open **Request a booking** from a destination. Use obviously synthetic details, future travel dates, phone preference, and explicit consent. Submit once and show the returned `pending_availability` reference.
+Open **Request a booking** from a destination. Use obviously synthetic details, future travel dates, one contact preference, the matching contact field, a language, and explicit consent. Submit once and show the bilingual acknowledgement, actual `pending_availability` reference, and the statement that this is a request rather than a confirmed reservation.
 
-Explain that replay protection uses an idempotency key and the public response omits contact data. Do not read the synthetic phone number aloud.
+Explain that replay protection reuses an idempotency key for the same browser retry, the booking and selected-channel outbox job commit atomically, and the public response omits contact data. Point out whether the chosen channel is `queued` or truthfully `unavailable`; do not claim delivery. Do not read the synthetic phone number or email aloud.
 
 ### 2:10–2:50 — Protected operator workflow
 
@@ -99,7 +101,7 @@ set "SMS_ENABLED="
 set "SMS_PROVIDER="
 ```
 
-The summary should show processed state without printing the recipient or message. This local mode is rejected in staging and production.
+The summary should show processed state without printing the recipient or message. This local mode is rejected in staging and production. It never sends to a real handset.
 
 ## Optional local USSD check
 
@@ -152,8 +154,8 @@ Capture these before submission, preferably at 1440×900 or a similar readable r
 
 1. Landing page with SafariSmart branding and channel summary
 2. Five-card destination explorer
-3. Planner response with generation-mode badge and disclaimer
-4. Successful booking reference with no contact data visible
+3. Context-aware Zanzibar chat and single-destination planner response with generation-mode badge and disclaimer
+4. Bilingual successful booking acknowledgement with the actual reference, channel state, and no contact data visible
 5. Operator queue/detail with synthetic label and audit history; redact PII
 6. Africa's Talking Sandbox SMS inbox showing only a designated test number
 7. English and Kiswahili USSD Simulator screens showing `CON`/`END`
@@ -164,7 +166,7 @@ Redact API keys, database URLs, access tokens, real phone numbers, real email ad
 ## Recovery during judging
 
 - If the planner's optional model is unavailable, keep `AI_PROVIDER=fallback`; that is a tested product mode, not a failure.
-- If external SMS TLS fails, show the prior Simulator evidence and run the local outbox drain.
+- If an external provider is unavailable, keep the truthful `unavailable` acknowledgement. For SMS evidence, show the prior Simulator evidence and optionally run the local outbox drain.
 - If the temporary tunnel fails, use the local USSD `curl.exe` check and prior Simulator evidence.
 - If a demo quote already exists, create a fresh booking request instead of editing database state.
 - If the browser cannot reach the API, verify `http://127.0.0.1:8001/api/health` and that the web terminal set `VITE_API_BASE_URL` to port `8001`.

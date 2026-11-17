@@ -10,12 +10,12 @@ The complete local demo is implemented:
 
 - Responsive React and TypeScript traveller and operator experiences
 - Searchable destination catalog for Serengeti, Ngorongoro, Kilimanjaro, Zanzibar, and Tarangire
-- English/Kiswahili concierge chat and 1–14 day trip planner
+- Context-aware English/Kiswahili concierge chat with per-tab history and explicit single-, multi-, or explore-destination planning
 - Optional zero-cost local Ollama ranking with a deterministic, clearly labelled fallback
 - TZS budget context that never invents or estimates prices
 - Idempotent public booking requests with consent and contact validation
 - Argon2 operator authentication, signed short-lived tokens, organization isolation, and audited workflow decisions
-- Transactional consent-aware SMS outbox, continuous/bounded worker, safe local mode, and Africa's Talking Sandbox adapter
+- Transactional selected-channel outbox with Resend email, Africa's Talking SMS, provider idempotency where supported, retries, and truthful availability states
 - Fast, read-only bilingual USSD destination discovery with input validation and per-session rate limiting
 - PostgreSQL, SQLAlchemy 2.x, Alembic, Docker Compose, a single-image Marketplace package, and GitHub Actions
 
@@ -29,11 +29,12 @@ frontend/                React/TypeScript/Vite web app and tests
 database/                Database notes and seed guidance
 docs/                    Architecture, demo, channel, and release runbooks
 marketplace/Dockerfile   Single-image Marketplace build
+render.yaml              Render Free Docker Blueprint (secrets stay dashboard-supplied)
 compose.yaml             Local web/API/PostgreSQL stack
 .env.example             Safe configuration template
 ```
 
-See [architecture.md](docs/architecture.md), [DEMO.md](docs/DEMO.md), and [RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the implementation, exact demo flow, and evidence status.
+See [architecture.md](docs/architecture.md), [render-deployment.md](docs/render-deployment.md), [DEMO.md](docs/DEMO.md), and [RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the implementation, deployment, exact demo flow, and evidence status.
 
 ## Native local setup
 
@@ -97,15 +98,15 @@ docker compose up --build --detach db api frontend
 docker compose ps
 ```
 
-Open `http://127.0.0.1:8080`. Stop the stack with `docker compose down`; add `--volumes` only when intentionally deleting the disposable local database. The optional SMS worker starts with `docker compose --profile sms up --build sms-worker` after its provider settings are configured.
+Open `http://127.0.0.1:8080`. Stop the stack with `docker compose down`; add `--volumes` only when intentionally deleting the disposable local database. The optional notification dispatcher starts with `docker compose --profile sms up --build sms-worker` after its provider settings are configured; the service name remains `sms-worker` for Compose compatibility.
 
-The Marketplace-oriented single image serves the compiled frontend and FastAPI from one process:
+The Marketplace/Render-oriented single image serves the compiled frontend and FastAPI from one process:
 
 ```powershell
 docker build --file marketplace/Dockerfile --tag safarismart-ai-concierge:0.1.0 .
 ```
 
-It requires an external PostgreSQL `DATABASE_URL` and strong `AUTH_SECRET_KEY`. Full registry steps and draft listing copy are in [marketplace-submission.md](docs/marketplace-submission.md).
+It requires an external PostgreSQL `DATABASE_URL` and strong `AUTH_SECRET_KEY`. For the public hackathon path, follow the exact [Render Free + Neon runbook](docs/render-deployment.md). Full registry steps and draft listing copy are in [marketplace-submission.md](docs/marketplace-submission.md).
 
 ## Concierge modes
 
@@ -121,7 +122,11 @@ OLLAMA_MODEL=qwen2.5:3b
 
 Ollama may rank only known destination slugs. All descriptions, itinerary fields, safety wording, and booking boundaries still come from validated application data. Invalid or unavailable model output falls back safely.
 
-## SMS and USSD
+## Email, SMS, and USSD
+
+Every consented booking atomically creates exactly one notification job matching the selected channel. Email uses the Resend HTTPS API; SMS uses the existing Africa's Talking adapter. An idempotent booking replay returns the original reference and never creates a second job. Provider calls happen only after commit, and API acceptance is stored separately from confirmed delivery.
+
+When a provider is not configured, the booking still succeeds and the bilingual success page says that external notification is unavailable. While a web instance is active, bounded drains process due jobs; jobs remain durable in PostgreSQL while a Render Free instance sleeps. Configuration and limitations are in [render-deployment.md](docs/render-deployment.md).
 
 SMS is disabled by default. `SMS_PROVIDER=local` validates messages without contacting a provider and is accepted only in development or test. To drain locally queued notifications without revealing phone numbers or message bodies:
 
@@ -130,7 +135,7 @@ Set-Location backend
 python -m app.cli.notification_worker --drain
 ```
 
-Use `python -m app.cli.notification_worker` for continuous polling. Africa's Talking Sandbox configuration and the fixed-message Simulator check are documented in [sms-notifications.md](docs/sms-notifications.md).
+Use `python -m app.cli.notification_worker` for continuous polling when dedicated worker compute is available. Africa's Talking Sandbox configuration and the fixed-message Simulator check are documented in [sms-notifications.md](docs/sms-notifications.md).
 
 Africa's Talking posts form-encoded USSD requests to `POST /api/v1/ussd`. The read-only menu supports English and Kiswahili and does not store the subscriber number or expose booking details. See [ussd-tourism.md](docs/ussd-tourism.md).
 
@@ -153,7 +158,7 @@ Africa's Talking posts form-encoded USSD requests to `POST /api/v1/ussd`. The re
 | `POST` | `/api/v1/operator/bookings/{reference}/reject` | Valid audited rejection | Owning organization |
 | `POST` | `/api/v1/operator/bookings/{reference}/confirm` | Confirm only from `pending_confirmation` | Owning organization |
 
-Booking submission requires a unique `Idempotency-Key` header. The public response omits customer contact information. There is deliberately no unauthenticated booking lookup, customer quote acceptance, arbitrary SMS sending, operator registration, or direct confirmation from `pending_availability`.
+Booking submission requires a unique `Idempotency-Key` header and is protected by a per-client, in-process burst limit. The public response omits customer contact information and reports only the selected notification channel plus `queued` or `unavailable`; it never claims delivery. There is deliberately no unauthenticated booking lookup, customer quote acceptance, arbitrary notification sending, operator registration, or direct confirmation from `pending_availability`.
 
 ## Tests and CI
 
@@ -172,10 +177,11 @@ Most backend tests use isolated SQLite databases. Set `TEST_DATABASE_URL` only t
 ## Security and known limits
 
 - Never commit `.env`, credentials, customer data, tokens, or generated signing material.
-- Staging and production reject missing/weak signing keys, implicit database defaults, debug mode, and the local SMS provider.
+- Staging and production reject missing/weak signing keys, implicit database defaults, debug mode, the local SMS provider, the wrong PostgreSQL driver, and Neon URLs without TLS.
 - Customer booking lookup and actions remain deferred until a verified account or one-time out-of-band challenge is implemented; a reference, email, or phone number is not proof of identity.
 - The demo has no live inventory, accommodation/transport catalog, payments, real operator integrations, durable customer sessions, MFA, password reset, or verified delivery-report callback.
-- The local USSD limiter is per API process; production should add trusted edge controls and a shared limiter.
+- Public booking and USSD limiters are per API process; multi-instance production should add trusted edge controls and a shared limiter.
+- Render Free notification dispatch is best-effort while the web instance is awake; PostgreSQL retains due jobs during sleep, but a dedicated worker remains the production upgrade.
 - A provider API acceptance is not proof of handset delivery, payment, operator acceptance, or reservation.
 
 ## Hackathon handoff
@@ -183,6 +189,7 @@ Most backend tests use isolated SQLite databases. Set `TEST_DATABASE_URL` only t
 - [3-minute demo and exact Windows commands](docs/DEMO.md)
 - [Release and evidence checklist](docs/RELEASE_CHECKLIST.md)
 - [Marketplace submission draft](docs/marketplace-submission.md)
+- [Render Free + Neon deployment runbook](docs/render-deployment.md)
 - [Customer-access security decision](docs/customer-booking-access.md)
 
 ## Author

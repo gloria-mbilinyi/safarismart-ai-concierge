@@ -1,8 +1,8 @@
-# SMS Notifications and Africa's Talking Sandbox
+# Booking notifications and Africa's Talking Sandbox
 
 ## Implemented scope
 
-SafariSmart implements outbound, booking-scoped SMS notifications through the official Africa's Talking Python SDK. It does not expose a public or operator-facing arbitrary SMS endpoint.
+SafariSmart implements booking-scoped email through the Resend HTTPS API and SMS through the official Africa's Talking Python SDK. The customer chooses one channel; SafariSmart never silently falls back to the other channel and does not expose a public or operator-facing arbitrary-notification endpoint.
 
 Five fixed notification events are available in English and Swahili:
 
@@ -14,9 +14,23 @@ Five fixed notification events are available in English and Swahili:
 | Booking rejected | Says no real-world reservation was made |
 | Synthetic confirmation | Says the demo state does not prove a real reservation |
 
-Messages contain the booking reference but omit the customer's name, email address, special requests, and other booking details. Scheduling and sending both recheck customer consent, phone contact preference, presence of a number, and international number format.
+Messages contain the booking reference and pending/demo status but omit the customer's name, special requests, and other booking details. Scheduling and sending both recheck customer consent, the selected contact preference, and the matching validated recipient. A booking creates at most one selected-channel job; it never creates both an email and an SMS job.
 
-## Configuration
+## Email configuration
+
+Email is disabled by default and uses HTTPS rather than SMTP:
+
+```dotenv
+EMAIL_ENABLED=false
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
+RESEND_FROM_NAME=SafariSmart AI Concierge
+RESEND_TIMEOUT_SECONDS=5
+```
+
+Enable email only after Resend confirms that the sender domain is verified. The API key is represented by Pydantic `SecretStr` and must never appear in source, logs, screenshots, exceptions, or frontend configuration. A successful Resend API response records `accepted`; it is not proof of inbox delivery. SafariSmart supplies the deterministic notification key as Resend's `Idempotency-Key` so retrying the same outbox event does not intentionally submit a duplicate.
+
+## SMS configuration
 
 SMS is sandbox-first and disabled by default:
 
@@ -39,36 +53,36 @@ When SMS is enabled, username and API key must both exist. Sandbox configuration
 sequenceDiagram
     participant API as Booking transaction
     participant DB as PostgreSQL outbox
-    participant W as SMS worker
-    participant AT as Africa's Talking
+    participant W as Notification dispatcher
+    participant P as Selected provider
 
     API->>DB: Save booking/status and queued event
     API->>DB: Commit atomically
     W->>DB: Claim due event with row lock and lease
     W->>DB: Commit processing claim
-    W->>AT: Submit fixed SMS outside transaction
-    AT-->>W: Accepted or rejected response
+    W->>P: Submit fixed message outside transaction
+    P-->>W: Accepted or rejected response
     W->>DB: Record accepted, retry, or failed
 ```
 
-Each event has a deterministic idempotency key based on booking reference, event kind, state, and language. Public booking replay therefore does not create a second received notification. Workflow row locking and the unique outbox key protect transition notifications.
+Each event has a deterministic idempotency key based on booking reference, event kind, state, language, and selected channel. Public booking replay therefore does not create a second received notification. Workflow row locking and the unique outbox key protect transition notifications.
 
 Workers claim one event with `FOR UPDATE SKIP LOCKED` on PostgreSQL, set a unique claim token and lease, increment the attempt count, and commit before any network call. Other workers cannot claim the same unexpired event. A transient provider or network failure returns the event to `queued` with bounded exponential backoff; permanent rejection or retry exhaustion becomes `failed`.
 
-The provider does not expose an idempotency key in this SDK operation. A worker crash after provider acceptance but before the database update can therefore cause an at-least-once retry. Claim tokens prevent concurrent sends, but production monitoring must still detect this rare crash window.
+Resend accepts the event key as a provider idempotency key. Africa's Talking does not expose an idempotency key in this SDK operation, so a dispatcher crash after SMS acceptance but before the database update can cause an at-least-once retry. Claim tokens prevent concurrent sends, but production monitoring must still detect this rare SMS crash window.
 
 ### Notification states
 
 - `queued`: due now or after a retry delay.
 - `processing`: leased by one worker; no delivery claim is made.
-- `accepted`: Africa's Talking accepted the API request and returned, or omitted, a message identifier.
+- `accepted`: the selected provider accepted the API request and returned, or omitted, a message identifier.
 - `delivered`: a later provider delivery report states success.
 - `failed`: provider rejection, delivery failure, invalid permission state, or retry exhaustion.
 - `unknown`: an unrecognized delivery report or stale worker result.
 
 Only controlled error codes are stored. Provider exception text, credentials, recipient numbers, and message bodies are not persisted in the outbox or routine worker results.
 
-### Worker commands
+### Dispatcher commands
 
 Run continuously from `backend/`:
 
@@ -82,7 +96,9 @@ Process only currently due rows and exit:
 python -m app.cli.notification_worker --drain --max-messages 100
 ```
 
-Continuous mode polls with a five-second default delay; `--poll-seconds` changes it. The worker checks configuration and database connectivity before claiming a row. Its summaries contain counts and controlled state only, never recipients or message bodies. Docker Compose exposes the worker through the optional `sms` profile.
+Continuous mode polls with a five-second default delay; `--poll-seconds` changes it. The dispatcher checks configuration and database connectivity before claiming a row. Its summaries contain counts and controlled state only, never recipients or message bodies. Docker Compose exposes the dedicated dispatcher through the legacy optional `sms` profile.
+
+The web process also drains a small bounded batch after a successful booking commit, on process startup, and periodically while the instance remains active. These attempts never block the booking response. On sleeping free hosting, due rows remain durable in PostgreSQL and resume when the web instance wakes. A continuously supervised dispatcher remains the recommended production upgrade; fake keep-alive traffic is not part of the design.
 
 ## Sandbox Simulator check
 
@@ -118,12 +134,13 @@ Official references:
 
 ## Production requirements and limitations
 
-Before live SMS is enabled, SafariSmart still needs:
+Before live notifications are enabled, SafariSmart still needs:
 
+- A verified Resend domain, restricted API key, monitored sender, bounce/complaint handling, and an authenticated delivery-event design for production email.
 - A production Africa's Talking application, API key, approved sender identity, balance, and country-specific compliance.
-- Deployment of the implemented worker as a separate continuously supervised process, with queue-age/failure monitoring and graceful shutdown.
+- Deployment of the implemented dispatcher as a separate continuously supervised process, with queue-age/failure monitoring and graceful shutdown, when hosting permits it.
 - An authenticated or otherwise provider-validated delivery-report callback route that calls the internal delivery-state recorder.
 - Secret rotation, metrics, alerts for queue age and failure rate, and an operational retry/dead-letter policy.
 - Load and concurrency validation against the production PostgreSQL configuration.
 
-Sandbox API acceptance is not real SMS delivery and must never be presented as a confirmed booking, operator partnership, or reservation.
+Provider API acceptance is not confirmed delivery. Sandbox API acceptance is not real handset delivery and must never be presented as a confirmed booking, operator partnership, or reservation.
