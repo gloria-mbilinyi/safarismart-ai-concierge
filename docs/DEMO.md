@@ -1,6 +1,6 @@
 # SafariSmart Hackathon Demo Runbook
 
-This runbook is for the 18 November 2026 hackathon demonstration. Use synthetic customer details and the synthetic operator only. Never show `.env`, terminal history containing credentials, a real phone number, an access token, or private booking detail on a public screen.
+This runbook is for the November 2026 hackathon demonstration. Use synthetic customer details and the synthetic operator only. Never show `.env`, terminal history containing credentials, a real phone number, an access token, or private booking detail on a public screen.
 
 ## Pre-demo checklist
 
