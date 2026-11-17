@@ -1,8 +1,9 @@
-import { Bot, Check, MapPin, MessageCircle, Search, Send, Sparkles, WandSparkles } from "lucide-react";
+import { Check, MapPin, Search, Sparkles, WandSparkles } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, ApiError } from "../api";
+import { ConciergeChat } from "../components/ConciergeChat";
 import { InlineError, Loading } from "../components/Feedback";
 import {
   filterDestinationOptions,
@@ -11,7 +12,6 @@ import {
   validatePlanSelection,
 } from "../lib/planning";
 import type {
-  ChatResponse,
   Destination,
   PlanningMode,
   TravelInterest,
@@ -67,9 +67,6 @@ export function PlannerPage() {
   const [plan, setPlan] = useState<TripPlan | null>(null);
   const [planning, setPlanning] = useState(false);
   const [error, setError] = useState("");
-  const [chatMessage, setChatMessage] = useState("");
-  const [chat, setChat] = useState<ChatResponse | null>(null);
-  const [chatting, setChatting] = useState(false);
   const filteredDestinations = useMemo(
     () => filterDestinationOptions(destinations, destinationQuery),
     [destinations, destinationQuery],
@@ -130,20 +127,6 @@ export function PlannerPage() {
       setError(reason instanceof ApiError ? reason.message : "The planner is unavailable. Please try again.");
     } finally {
       setPlanning(false);
-    }
-  }
-
-  async function submitChat(event: FormEvent) {
-    event.preventDefault();
-    if (!chatMessage.trim()) return;
-    setChatting(true);
-    setError("");
-    try {
-      setChat(await api.chat(chatMessage, form.language));
-    } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : "The concierge is unavailable. Please try again.");
-    } finally {
-      setChatting(false);
     }
   }
 
@@ -295,34 +278,7 @@ export function PlannerPage() {
           </button>
         </form>
 
-        <section className="chat-panel panel">
-          <div className="panel-heading">
-            <span className="step-dot"><Bot size={18} /></span>
-            <div><h2>Ask the concierge</h2><p>Try “I want wildlife and mountains” or “Nataka kwenda pwani.”</p></div>
-          </div>
-          <div className="chat-window" aria-live="polite">
-            <div className="chat-bubble assistant">
-              <Bot size={18} />
-              <p>Karibu! I can help you discover destinations already in SafariSmart&apos;s Tanzania catalog.</p>
-            </div>
-            {chatMessage && chat && <div className="chat-bubble traveler"><p>{chatMessage}</p></div>}
-            {chat && (
-              <div className="chat-bubble assistant">
-                <Bot size={18} />
-                <div>
-                  <p>{chat.answer}</p>
-                  {chat.safety_notice && <small>{chat.safety_notice}</small>}
-                </div>
-              </div>
-            )}
-          </div>
-          <form className="chat-form" onSubmit={submitChat}>
-            <label className="sr-only" htmlFor="chat-message">Message the concierge</label>
-            <textarea id="chat-message" maxLength={500} rows={3} value={chatMessage} onChange={(event) => { setChatMessage(event.target.value); setChat(null); }} placeholder={form.language === "sw" ? "Niambie unapenda nini…" : "Tell me what you enjoy…"} />
-            <button type="submit" aria-label="Send message" disabled={chatting || chatMessage.trim().length < 2}><Send size={18} /></button>
-          </form>
-          <p className="mode-note"><MessageCircle size={14} /> Responses are catalog-grounded and clearly labelled.</p>
-        </section>
+        <ConciergeChat />
       </div>
 
       {error && <InlineError message={error} />}

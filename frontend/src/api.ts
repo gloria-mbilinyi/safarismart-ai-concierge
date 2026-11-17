@@ -2,6 +2,7 @@ import type {
   BookingAcknowledgement,
   BookingSubmission,
   ChatResponse,
+  ChatContextMessage,
   DestinationList,
   OperatorBookingDetail,
   OperatorBookingList,
@@ -63,10 +64,10 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
-  chat(message: string, language: "en" | "sw") {
+  chat(message: string, language: "en" | "sw", history: ChatContextMessage[] = []) {
     return request<ChatResponse>("/concierge/chat", {
       method: "POST",
-      body: JSON.stringify({ message, language }),
+      body: JSON.stringify({ message, language, history }),
     });
   },
   submitBooking(payload: BookingSubmission, idempotencyKey: string) {

@@ -68,9 +68,36 @@ export interface TripPlan {
 
 export interface ChatResponse {
   generation_mode: "rule_based_fallback" | "local_ollama";
+  intent:
+    | "recommendation"
+    | "destination_overview"
+    | "activities"
+    | "trip_duration"
+    | "comparison"
+    | "budget"
+    | "booking_guidance"
+    | "unsupported_fact"
+    | "clarification";
   answer: string;
   referenced_destinations: PlanDestination[];
   safety_notice: string | null;
+  follow_up_suggestions: string[];
+  booking_destination_id: string | null;
+}
+
+export interface ChatContextMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ConversationMessage extends ChatContextMessage {
+  id: string;
+  created_at: string;
+  generation_mode?: ChatResponse["generation_mode"];
+  intent?: ChatResponse["intent"];
+  safety_notice?: string | null;
+  follow_up_suggestions?: string[];
+  booking_destination_id?: string | null;
 }
 
 export interface BookingSubmission {
