@@ -8,7 +8,10 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.integrations.concierge_provider import DestinationRankingProvider
+from app.integrations.concierge_provider import (
+    ConciergeProviderError,
+    ConversationalAnswerProvider,
+)
 from app.models.destination import Destination
 from app.models.enums import DestinationCategory
 from app.schemas.concierge import (
@@ -112,6 +115,35 @@ SWAHILI_CATALOG_SUMMARIES = {
         "ikolojia wa Mto Tarangire"
     ),
 }
+
+MODEL_ELIGIBLE_INTENTS = {
+    ChatIntent.RECOMMENDATION,
+    ChatIntent.DESTINATION_OVERVIEW,
+    ChatIntent.ACTIVITIES,
+    ChatIntent.TRIP_DURATION,
+    ChatIntent.COMPARISON,
+}
+
+UNSAFE_MODEL_CLAIMS = (
+    "booking is confirmed",
+    "reservation is confirmed",
+    "booked for you",
+    "guaranteed availability",
+    "available now",
+    "live availability",
+    "official partner",
+    "partnered with",
+    "payment completed",
+)
+
+UNVERIFIED_ENTITY_TERMS = (
+    " hotel",
+    " resort",
+    " lodge",
+    " airline",
+    " tour company",
+    " tour operator",
+)
 
 
 def _active_destinations(session: Session) -> list[Destination]:
@@ -458,14 +490,84 @@ def _suggestions(
     return options
 
 
+def _provider_answer(
+    provider: ConversationalAnswerProvider | None,
+    *,
+    request: ConciergeChatRequest,
+    intent: ChatIntent,
+    safe_draft: str,
+    references: list[Destination],
+    catalog: list[Destination],
+) -> tuple[str, str]:
+    """Accept optional prose only when it preserves the grounded boundary."""
+
+    if provider is None or intent not in MODEL_ELIGIBLE_INTENTS:
+        return safe_draft, "rule_based_fallback"
+    answer_method = getattr(provider, "answer_question", None)
+    if not callable(answer_method):
+        return safe_draft, "rule_based_fallback"
+
+    trusted_facts = [
+        {
+            "name": destination.name,
+            "region": destination.region,
+            "category": destination.category,
+            "description": destination.description,
+        }
+        for destination in references
+    ]
+    try:
+        candidate = answer_method(
+            user_message=request.message,
+            language=request.language.value,
+            intent=intent.value,
+            trusted_facts=trusted_facts,
+            safe_draft=safe_draft,
+            known_destination_names=[destination.name for destination in catalog],
+        )
+    except (ConciergeProviderError, TimeoutError, OSError, TypeError, ValueError):
+        return safe_draft, "rule_based_fallback"
+
+    if not isinstance(candidate, str):
+        return safe_draft, "rule_based_fallback"
+    candidate = candidate.strip()
+    normalized = candidate.casefold()
+    if not 20 <= len(candidate) <= 1600:
+        return safe_draft, "rule_based_fallback"
+    if any(claim in normalized for claim in UNSAFE_MODEL_CLAIMS):
+        return safe_draft, "rule_based_fallback"
+    if any(term in normalized for term in UNVERIFIED_ENTITY_TERMS):
+        return safe_draft, "rule_based_fallback"
+    candidate_numbers = set(re.findall(r"\b\d[\d,.]*\b", candidate))
+    draft_numbers = set(re.findall(r"\b\d[\d,.]*\b", safe_draft))
+    if not candidate_numbers <= draft_numbers:
+        return safe_draft, "rule_based_fallback"
+    allowed_ids = {destination.id for destination in references}
+    if any(
+        any(
+            re.search(rf"\b{re.escape(alias)}\b", normalized)
+            for alias in _aliases(destination)
+        )
+        and destination.id not in allowed_ids
+        for destination in catalog
+    ):
+        return safe_draft, "rule_based_fallback"
+    if references and not any(
+        re.search(rf"\b{re.escape(alias)}\b", normalized)
+        for destination in references
+        for alias in _aliases(destination)
+    ):
+        return safe_draft, "rule_based_fallback"
+    return candidate, "local_ollama"
+
+
 def chat_about_destinations(
     session: Session,
     request: ConciergeChatRequest,
-    provider: DestinationRankingProvider | None = None,
+    provider: ConversationalAnswerProvider | None = None,
 ) -> ConciergeChatResponse:
     """Answer the actual question using bounded context and trusted catalog rows."""
 
-    del provider  # Conversational provider support is handled by its own later boundary.
     swahili = request.language == ConciergeLanguage.SWAHILI
     if has_prompt_injection(request.message):
         return ConciergeChatResponse(
@@ -561,8 +663,16 @@ def chat_about_destinations(
         if swahili
         else "Discussed in this conversation"
     )
+    answer, generation_mode = _provider_answer(
+        provider,
+        request=request,
+        intent=intent,
+        safe_draft=answer,
+        references=references,
+        catalog=catalog,
+    )
     return ConciergeChatResponse(
-        generation_mode="rule_based_fallback",
+        generation_mode=generation_mode,
         intent=intent,
         answer=answer,
         referenced_destinations=[

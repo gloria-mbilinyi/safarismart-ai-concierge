@@ -4,7 +4,56 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from app.integrations.concierge_provider import ConciergeProviderError
 from app.models.destination import Destination
+
+
+class SafeConversationProvider:
+    """Return a concise grounded rephrasing for provider-mode coverage."""
+
+    mode = "local_ollama"
+
+    def answer_question(self, **_: Any) -> str:
+        return (
+            "Zanzibar offers catalog-backed coastal and Swahili cultural themes. "
+            "Use them for planning, while treating prices and availability as unverified."
+        )
+
+
+class FailingConversationProvider:
+    """Simulate an unavailable local model."""
+
+    mode = "local_ollama"
+
+    def answer_question(self, **_: Any) -> str:
+        raise ConciergeProviderError("local model unavailable")
+
+
+class UnsafeConversationProvider:
+    """Attempt to replace a safe draft with a forbidden booking claim."""
+
+    mode = "local_ollama"
+
+    def answer_question(self, **_: Any) -> str:
+        return "Zanzibar is available now and your booking is confirmed."
+
+
+class CrossDestinationProvider:
+    """Attempt to introduce a catalog destination outside the grounded scope."""
+
+    mode = "local_ollama"
+
+    def answer_question(self, **_: Any) -> str:
+        return "Zanzibar is coastal, and Serengeti is another place you should book."
+
+
+class InventedPriceProvider:
+    """Attempt to add a numerical claim absent from the grounded draft."""
+
+    mode = "local_ollama"
+
+    def answer_question(self, **_: Any) -> str:
+        return "Zanzibar is a coastal destination and a tour costs TZS 500,000."
 
 
 def destination_by_slug(
@@ -228,3 +277,59 @@ def test_history_count_and_total_size_are_bounded(client: TestClient) -> None:
 
     assert too_many.status_code == 422
     assert too_large.status_code == 422
+
+
+def test_safe_local_model_prose_is_labelled_and_provider_failures_fall_back(
+    client: TestClient,
+    seeded_destinations: list[Destination],
+) -> None:
+    """Generation mode must describe whether accepted model prose was used."""
+
+    client.app.state.concierge_provider = SafeConversationProvider()
+    local_answer = chat(client, "Tell me about Zanzibar")
+    client.app.state.concierge_provider = FailingConversationProvider()
+    fallback_answer = chat(client, "Tell me about Zanzibar")
+
+    assert local_answer["generation_mode"] == "local_ollama"
+    assert local_answer["answer"].startswith("Zanzibar offers")
+    assert fallback_answer["generation_mode"] == "rule_based_fallback"
+    assert "Zanzibar is in Zanzibar" in fallback_answer["answer"]
+
+
+def test_unsafe_or_cross_destination_model_prose_is_rejected(
+    client: TestClient,
+    seeded_destinations: list[Destination],
+) -> None:
+    """Optional prose cannot claim confirmation or broaden destination scope."""
+
+    client.app.state.concierge_provider = UnsafeConversationProvider()
+    unsafe_answer = chat(client, "Tell me about Zanzibar")
+    client.app.state.concierge_provider = CrossDestinationProvider()
+    cross_destination = chat(client, "Tell me about Zanzibar")
+    client.app.state.concierge_provider = InventedPriceProvider()
+    invented_price = chat(client, "Tell me about Zanzibar")
+
+    assert unsafe_answer["generation_mode"] == "rule_based_fallback"
+    assert "booking is confirmed" not in unsafe_answer["answer"]
+    assert cross_destination["generation_mode"] == "rule_based_fallback"
+    assert "Serengeti" not in cross_destination["answer"]
+    assert invented_price["generation_mode"] == "rule_based_fallback"
+    assert "500,000" not in invented_price["answer"]
+
+
+def test_safety_critical_booking_answer_never_uses_optional_model_prose(
+    client: TestClient,
+    seeded_destinations: list[Destination],
+) -> None:
+    """The deterministic workflow boundary owns all booking guidance."""
+
+    client.app.state.concierge_provider = UnsafeConversationProvider()
+    payload = chat(
+        client,
+        "Can you help me book?",
+        history=[{"role": "user", "content": "I want to visit Zanzibar"}],
+    )
+
+    assert payload["generation_mode"] == "rule_based_fallback"
+    assert payload["intent"] == "booking_guidance"
+    assert "pending availability" in payload["answer"]

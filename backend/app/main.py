@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.router import api_router
 from app.config import Settings, get_settings
 from app.db.session import Database
-from app.integrations.concierge_provider import build_ranking_provider
+from app.integrations.concierge_provider import build_concierge_provider
 from app.services.rate_limit import SlidingWindowRateLimiter
 
 
@@ -39,7 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.database = database
     application.state.settings = app_settings
-    application.state.concierge_provider = build_ranking_provider(app_settings)
+    application.state.concierge_provider = build_concierge_provider(app_settings)
     application.state.ussd_rate_limiter = SlidingWindowRateLimiter(
         app_settings.ussd_rate_limit_per_minute,
         max_tracked_keys=app_settings.ussd_rate_limit_max_sessions,
