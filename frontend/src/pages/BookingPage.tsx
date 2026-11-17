@@ -1,11 +1,61 @@
 import { CalendarDays, CheckCircle2, LockKeyhole, Send, Users } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { api, ApiError } from "../api";
 import { InlineError, Loading } from "../components/Feedback";
 import { minimumTravelDate } from "../lib/display";
 import type { BookingAcknowledgement, BookingSubmission, Destination } from "../types";
+
+const SUCCESS_COPY = {
+  en: {
+    overline: "Request received",
+    title: "Your travel request has been submitted successfully!",
+    thanks: "Thank you for choosing SafariSmart AI Concierge.",
+    received: "Your booking request has been received and is awaiting operator review.",
+    reference: "Booking Reference",
+    contact: "We will contact you through your selected communication channel when notifications are available.",
+    disclaimer: "Please note that this is a booking request, not a confirmed reservation.",
+  },
+  sw: {
+    overline: "Ombi limepokelewa",
+    title: "Ombi lako la safari limewasilishwa kwa mafanikio!",
+    thanks: "Asante kwa kuchagua SafariSmart AI Concierge.",
+    received: "Ombi lako la safari limepokelewa na linasubiri mapitio ya mhudumu.",
+    reference: "Nambari ya Ombi",
+    contact: "Tutawasiliana nawe kupitia njia uliyochagua wakati arifa zinapatikana.",
+    disclaimer: "Tafadhali kumbuka kuwa hili ni ombi la safari, si nafasi iliyothibitishwa.",
+  },
+} as const;
+
+function notificationCopy(
+  result: BookingAcknowledgement,
+  language: "en" | "sw",
+): string {
+  if (result.notification.state === "unavailable") {
+    return language === "sw"
+      ? `Arifa ya nje kupitia ${result.notification.channel === "email" ? "barua pepe" : "SMS"} haijasanidiwa kwa sasa. Hifadhi nambari yako ya ombi.`
+      : `External ${result.notification.channel === "email" ? "email" : "SMS"} notification is not currently configured. Keep your booking reference.`;
+  }
+  if (result.notification.mode === "africastalking_sandbox") {
+    return language === "sw"
+      ? "Arifa ya SMS imewekwa kwenye foleni ya Africa's Talking Sandbox. Kukubaliwa na Sandbox hakumaanishi simu halisi imepokea ujumbe."
+      : "An SMS acknowledgement is queued in Africa's Talking Sandbox. Sandbox acceptance does not mean a real handset received it.";
+  }
+  if (result.notification.mode === "local") {
+    return language === "sw"
+      ? "Ujumbe umewekwa kwenye foleni ya mtoa huduma wa majaribio wa ndani; hakuna SMS ya nje iliyotumwa."
+      : "The acknowledgement was accepted by the local test provider; no external SMS was sent.";
+  }
+  if (result.notification.channel === "email") {
+    return language === "sw"
+      ? "Ujumbe wa barua pepe umewekwa kwenye foleni ya Resend. Kukubaliwa na mtoa huduma hakuthibitishi kufika kwenye kikasha."
+      : "An email acknowledgement is queued for Resend submission. Provider acceptance does not confirm inbox delivery.";
+  }
+  return language === "sw"
+    ? "Ujumbe wa SMS umewekwa kwenye foleni ya mtoa huduma. Kukubaliwa na mtoa huduma hakuthibitishi kufikishwa."
+    : "An SMS acknowledgement is queued for provider submission. Provider acceptance does not confirm delivery.";
+}
 
 export function BookingPage() {
   const [searchParams] = useSearchParams();
@@ -14,6 +64,8 @@ export function BookingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<BookingAcknowledgement | null>(null);
+  const pendingSubmission = useRef<{ fingerprint: string; key: string } | null>(null);
+  const successHeading = useRef<HTMLHeadingElement>(null);
   const earliest = useMemo(() => minimumTravelDate(), []);
   const [form, setForm] = useState({
     destination_id: searchParams.get("destination") ?? "",
@@ -24,6 +76,7 @@ export function BookingPage() {
     customer_email: "",
     customer_phone: "",
     customer_contact_preference: "email" as "email" | "phone",
+    customer_language: "en" as "en" | "sw",
     special_requests: "",
     customer_consent: false,
   });
@@ -38,6 +91,10 @@ export function BookingPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    if (result) successHeading.current?.focus();
+  }, [result]);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!form.customer_consent) return;
@@ -50,13 +107,22 @@ export function BookingPage() {
       party_size: form.party_size,
       customer_name: form.customer_name,
       customer_contact_preference: form.customer_contact_preference,
+      customer_language: form.customer_language,
       customer_consent: true,
-      ...(form.customer_email ? { customer_email: form.customer_email } : {}),
-      ...(form.customer_phone ? { customer_phone: form.customer_phone } : {}),
+      ...(form.customer_contact_preference === "email" && form.customer_email
+        ? { customer_email: form.customer_email }
+        : {}),
+      ...(form.customer_contact_preference === "phone" && form.customer_phone
+        ? { customer_phone: form.customer_phone }
+        : {}),
       ...(form.special_requests ? { special_requests: form.special_requests } : {}),
     };
+    const fingerprint = JSON.stringify(payload);
+    if (pendingSubmission.current?.fingerprint !== fingerprint) {
+      pendingSubmission.current = { fingerprint, key: crypto.randomUUID() };
+    }
     try {
-      setResult(await api.submitBooking(payload, crypto.randomUUID()));
+      setResult(await api.submitBooking(payload, pendingSubmission.current.key));
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : "Your request could not be submitted. Please try again.");
@@ -68,18 +134,37 @@ export function BookingPage() {
   if (loading) return <div className="page-shell"><Loading label="Preparing the booking request" /></div>;
   if (result) {
     const destination = destinations.find((item) => item.id === result.destination_id);
+    const copy = SUCCESS_COPY[form.customer_language];
     return (
-      <div className="page-shell success-page">
-        <div className="success-mark"><CheckCircle2 /></div>
-        <span className="overline">Request received</span>
-        <h1>Your next step is human review.</h1>
-        <p>Keep this reference. It acknowledges your request; it is not a confirmed reservation.</p>
-        <div className="reference-box">
-          <small>Booking reference</small>
-          <strong>{result.booking_reference}</strong>
-          <span>{destination?.name ?? "Selected destination"} · {result.party_size} traveler(s)</span>
+      <div
+        className="page-shell success-page"
+        lang={form.customer_language}
+        aria-labelledby="booking-success-title"
+      >
+        <div className="success-mark" aria-hidden="true"><CheckCircle2 /></div>
+        <span className="overline">{copy.overline}</span>
+        <h1 id="booking-success-title" ref={successHeading} tabIndex={-1}>{copy.title}</h1>
+        <div className="success-copy">
+          <p>{copy.thanks}</p>
+          <p>{copy.received}</p>
         </div>
-        <div className="notice neutral"><LockKeyhole /><p>Customer status access is intentionally deferred until verified SMS or authenticated customer sessions are available.</p></div>
+        <div className="reference-box">
+          <small>{copy.reference}</small>
+          <strong>{result.booking_reference}</strong>
+          <span>
+            {destination?.name ?? (form.customer_language === "sw" ? "Eneo lililochaguliwa" : "Selected destination")}
+            {" · "}{result.party_size}{" "}
+            {form.customer_language === "sw"
+              ? (result.party_size === 1 ? "msafiri" : "wasafiri")
+              : (result.party_size === 1 ? "traveler" : "travelers")}
+          </span>
+        </div>
+        <p className="success-contact-note">{copy.contact}</p>
+        <div className={result.notification.state === "queued" ? "notice notification-queued" : "notice neutral"}>
+          <LockKeyhole />
+          <p>{notificationCopy(result, form.customer_language)}</p>
+        </div>
+        <p className="reservation-disclaimer">{copy.disclaimer}</p>
         <div className="hero-actions centered">
           <Link className="button button-primary" to="/destinations">Explore another place</Link>
           <Link className="button button-quiet" to="/">Back home</Link>
@@ -136,6 +221,23 @@ export function BookingPage() {
                   <label key={preference} className={form.customer_contact_preference === preference ? "radio-card selected" : "radio-card"}>
                     <input type="radio" name="contact" value={preference} checked={form.customer_contact_preference === preference} onChange={() => setForm({ ...form, customer_contact_preference: preference })} />
                     <span>{preference === "email" ? "Email" : "SMS / phone"}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Acknowledgement language</legend>
+              <div className="radio-row">
+                {(["en", "sw"] as const).map((language) => (
+                  <label key={language} className={form.customer_language === language ? "radio-card selected" : "radio-card"}>
+                    <input
+                      type="radio"
+                      name="customer-language"
+                      value={language}
+                      checked={form.customer_language === language}
+                      onChange={() => setForm({ ...form, customer_language: language })}
+                    />
+                    <span>{language === "en" ? "English" : "Kiswahili"}</span>
                   </label>
                 ))}
               </div>

@@ -109,6 +109,7 @@ export interface BookingSubmission {
   customer_email?: string;
   customer_phone?: string;
   customer_contact_preference: "email" | "phone";
+  customer_language: "en" | "sw";
   customer_consent: true;
   special_requests?: string;
 }
@@ -121,6 +122,16 @@ export interface BookingAcknowledgement {
   travel_end_date: string;
   party_size: number;
   created_at: string;
+  notification: {
+    channel: "email" | "sms";
+    state: "queued" | "unavailable";
+    mode:
+      | "resend"
+      | "africastalking_sandbox"
+      | "africastalking_production"
+      | "local"
+      | "unconfigured";
+  };
 }
 
 export type BookingStatus =
