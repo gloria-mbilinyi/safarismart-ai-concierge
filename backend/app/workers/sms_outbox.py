@@ -1,23 +1,28 @@
-"""Continuous and one-shot execution helpers for the transactional SMS outbox."""
+"""Continuous and bounded execution helpers for the notification outbox."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 import time
+from threading import Lock
 
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.models.enums import NotificationStatus
 from app.services.notification_outbox import (
     NotificationProcessResult,
     process_next_notification,
 )
+from app.services.notification_delivery import NotificationDeliveryServices
 from app.services.sms_notifications import SMSNotificationService
 
 
 OutboxProcessor = Callable[
-    [sessionmaker[Session], SMSNotificationService],
+    [sessionmaker[Session], NotificationDeliveryServices | SMSNotificationService],
     NotificationProcessResult | None,
 ]
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +38,7 @@ class WorkerSummary:
 
 def drain_due_notifications(
     session_factory: sessionmaker[Session],
-    service: SMSNotificationService,
+    services: NotificationDeliveryServices | SMSNotificationService,
     *,
     max_messages: int = 100,
     processor: OutboxProcessor = process_next_notification,
@@ -45,7 +50,7 @@ def drain_due_notifications(
     counts = {status: 0 for status in NotificationStatus}
     processed = 0
     for _ in range(max_messages):
-        result = processor(session_factory, service)
+        result = processor(session_factory, services)
         if result is None:
             break
         processed += 1
@@ -62,7 +67,7 @@ def drain_due_notifications(
 
 def run_continuously(
     session_factory: sessionmaker[Session],
-    service: SMSNotificationService,
+    services: NotificationDeliveryServices | SMSNotificationService,
     *,
     poll_seconds: float = 5.0,
     processor: OutboxProcessor = process_next_notification,
@@ -73,7 +78,7 @@ def run_continuously(
     if not 0.5 <= poll_seconds <= 300:
         raise ValueError("poll_seconds must be between 0.5 and 300")
     while True:
-        result = processor(session_factory, service)
+        result = processor(session_factory, services)
         if result is None:
             sleep(poll_seconds)
             continue
@@ -83,3 +88,48 @@ def run_continuously(
             f"(attempt {result.attempt_count})",
             flush=True,
         )
+
+
+class BoundedNotificationRunner:
+    """Serialize small drains inside an active web instance."""
+
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        services: NotificationDeliveryServices,
+        *,
+        max_messages: int,
+    ) -> None:
+        self.session_factory = session_factory
+        self.services = services
+        self.max_messages = max_messages
+        self._lock = Lock()
+
+    @property
+    def configured_channels(self):
+        """Expose provider availability without exposing credentials."""
+
+        return self.services.configured_channels
+
+    def drain(self) -> WorkerSummary:
+        """Process a bounded batch, or return immediately if another drain owns it."""
+
+        if not self.configured_channels or not self._lock.acquire(blocking=False):
+            return WorkerSummary(0, 0, 0, 0, 0)
+        try:
+            return drain_due_notifications(
+                self.session_factory,
+                self.services,
+                max_messages=self.max_messages,
+            )
+        finally:
+            self._lock.release()
+
+    def drain_safely(self) -> WorkerSummary:
+        """Keep web lifecycle triggers alive across transient database failures."""
+
+        try:
+            return self.drain()
+        except SQLAlchemyError:
+            logger.warning("Notification outbox drain failed due to a database error")
+            return WorkerSummary(0, 0, 0, 0, 0)

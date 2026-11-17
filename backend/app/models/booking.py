@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import BookingStatus, StatusActorType
+from app.models.enums import BookingStatus, NotificationLanguage, StatusActorType
 from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
@@ -47,6 +47,10 @@ class BookingRequest(TimestampMixin, Base):
         CheckConstraint(
             "customer_contact_preference IN ('email', 'phone')",
             name="valid_contact_preference",
+        ),
+        CheckConstraint(
+            "customer_language IN ('en', 'sw')",
+            name="valid_customer_language",
         ),
         CheckConstraint(f"status IN ({BOOKING_STATUSES})", name="valid_status"),
     )
@@ -74,6 +78,12 @@ class BookingRequest(TimestampMixin, Base):
     customer_email: Mapped[str | None] = mapped_column(String(320))
     customer_phone: Mapped[str | None] = mapped_column(String(32))
     customer_contact_preference: Mapped[str] = mapped_column(String(16), nullable=False)
+    customer_language: Mapped[str] = mapped_column(
+        String(8),
+        nullable=False,
+        default=NotificationLanguage.ENGLISH.value,
+        server_default=NotificationLanguage.ENGLISH.value,
+    )
     customer_consent: Mapped[bool] = mapped_column(Boolean, nullable=False)
     consent_recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

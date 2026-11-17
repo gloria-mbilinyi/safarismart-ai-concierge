@@ -57,6 +57,7 @@ def booking_matches_submission(
             booking.customer_phone == submission.customer_phone,
             booking.customer_contact_preference
             == submission.customer_contact_preference,
+            booking.customer_language == submission.customer_language,
             booking.customer_consent is submission.customer_consent,
             booking.special_requests == submission.special_requests,
         )
@@ -107,6 +108,7 @@ def create_booking_request(
         ),
         customer_phone=submission.customer_phone,
         customer_contact_preference=submission.customer_contact_preference,
+        customer_language=submission.customer_language,
         customer_consent=submission.customer_consent,
         special_requests=submission.special_requests,
         status=BookingStatus.PENDING_AVAILABILITY.value,
@@ -124,6 +126,7 @@ def create_booking_request(
         session,
         booking,
         SMSNotificationKind.BOOKING_RECEIVED,
+        language=booking.customer_language,
     )
 
     try:

@@ -55,6 +55,7 @@ class BookingRequestCreate(BaseModel):
     customer_email: EmailStr | None = None
     customer_phone: PhoneNumber | None = None
     customer_contact_preference: Literal["email", "phone"]
+    customer_language: Literal["en", "sw"] = "en"
     customer_consent: Literal[True]
     special_requests: SpecialRequests | None = None
 
@@ -73,6 +74,20 @@ class BookingRequestCreate(BaseModel):
         return self
 
 
+class BookingNotificationAcknowledgement(BaseModel):
+    """Truthful public state for the selected external contact channel."""
+
+    channel: Literal["email", "sms"]
+    state: Literal["queued", "unavailable"]
+    mode: Literal[
+        "resend",
+        "africastalking_sandbox",
+        "africastalking_production",
+        "local",
+        "unconfigured",
+    ]
+
+
 class BookingRequestResponse(BaseModel):
     """Non-sensitive acknowledgement returned after submission."""
 
@@ -83,3 +98,4 @@ class BookingRequestResponse(BaseModel):
     travel_end_date: date
     party_size: int
     created_at: datetime
+    notification: BookingNotificationAcknowledgement

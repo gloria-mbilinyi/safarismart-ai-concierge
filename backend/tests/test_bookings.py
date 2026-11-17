@@ -26,6 +26,7 @@ def valid_booking_payload(destination_id: UUID) -> dict[str, Any]:
         "customer_email": "amina@example.com",
         "customer_phone": "+255712345678",
         "customer_contact_preference": "email",
+        "customer_language": "en",
         "customer_consent": True,
         "special_requests": "Interested in a nature-focused itinerary.",
     }
@@ -55,10 +56,16 @@ def test_create_booking_request_persists_pending_request_without_exposing_contac
         "travel_end_date",
         "party_size",
         "created_at",
+            "notification",
     }
     assert payload["booking_reference"].startswith("SS-")
     assert payload["status"] == "pending_availability"
     assert payload["destination_id"] == str(destination.id)
+    assert payload["notification"] == {
+        "channel": "email",
+        "state": "unavailable",
+        "mode": "unconfigured",
+    }
     assert "customer_email" not in payload
     assert "customer_phone" not in payload
     assert "customer_name" not in payload
@@ -68,6 +75,7 @@ def test_create_booking_request_persists_pending_request_without_exposing_contac
     assert booking.status == "pending_availability"
     assert booking.status != "confirmed"
     assert booking.customer_email == "amina@example.com"
+    assert booking.customer_language == "en"
     assert len(booking.status_history) == 1
     assert booking.status_history[0].from_status is None
     assert booking.status_history[0].to_status == "pending_availability"
@@ -169,6 +177,7 @@ def test_booking_rejects_missing_or_inactive_destination(
         {"customer_email": None, "customer_contact_preference": "email"},
         {"customer_email": "not-an-email"},
         {"customer_phone": "0712345678", "customer_contact_preference": "phone"},
+        {"customer_language": "fr"},
     ],
 )
 def test_booking_validation_rejects_invalid_input(
@@ -223,3 +232,26 @@ def test_booking_detail_is_not_publicly_exposed(client: TestClient) -> None:
     response = client.get("/api/v1/bookings/SS-NOT-PUBLIC")
 
     assert response.status_code == 404
+
+
+def test_public_booking_submission_is_rate_limited_per_client(
+    client: TestClient,
+    db_session: Session,
+    seeded_destinations: list[Destination],
+) -> None:
+    """The single-instance MVP should bound anonymous booking bursts."""
+
+    payload = valid_booking_payload(seeded_destinations[0].id)
+    responses = [
+        client.post(
+            "/api/v1/bookings",
+            headers={"Idempotency-Key": f"rate-limit-{index:04d}"},
+            json=payload,
+        )
+        for index in range(6)
+    ]
+
+    assert [response.status_code for response in responses[:5]] == [201] * 5
+    assert responses[5].status_code == 429
+    assert responses[5].headers["Retry-After"] == "60"
+    assert db_session.scalar(select(func.count()).select_from(BookingRequest)) == 5

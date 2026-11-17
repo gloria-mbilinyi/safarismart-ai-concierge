@@ -131,6 +131,7 @@ def test_postgresql_authenticated_operator_booking_workflow() -> None:
                 assert queued_notification.kind == (
                     SMSNotificationKind.BOOKING_RECEIVED.value
                 )
+                assert queued_notification.channel == "sms"
                 assert queued_notification.status == NotificationStatus.QUEUED.value
 
             provider = Mock()

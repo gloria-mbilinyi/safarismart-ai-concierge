@@ -2,18 +2,21 @@
 """Africa's Talking SMS provider adapter."""
 
 import re
-from dataclasses import dataclass
 from typing import Any
 
 import africastalking
 
 from app.config import Settings
+from app.integrations.notification_provider import (
+    NotificationDeliveryError,
+    ProviderAcceptance,
+)
 
 
 PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
-class SMSDeliveryError(Exception):
+class SMSDeliveryError(NotificationDeliveryError):
     """Raised when the SMS provider cannot accept a message."""
 
     def __init__(
@@ -23,19 +26,14 @@ class SMSDeliveryError(Exception):
         retryable: bool,
         code: str,
     ) -> None:
-        super().__init__(message)
-        self.retryable = retryable
-        self.code = code
+        super().__init__(message, retryable=retryable, code=code)
 
 
 class SMSConfigurationError(Exception):
     """Raised when SMS sending is disabled or incompletely configured."""
 
 
-@dataclass(frozen=True)
-class SMSResult:
-    status: str
-    message_id: str | None
+SMSResult = ProviderAcceptance
 
 
 class AfricasTalkingSMSProvider:

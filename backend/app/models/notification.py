@@ -19,7 +19,12 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import NotificationStatus, SMSLanguage, SMSNotificationKind
+from app.models.enums import (
+    NotificationChannel,
+    NotificationKind,
+    NotificationLanguage,
+    NotificationStatus,
+)
 from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
@@ -29,22 +34,30 @@ if TYPE_CHECKING:
 NOTIFICATION_STATUSES = ", ".join(
     f"'{status.value}'" for status in NotificationStatus
 )
-NOTIFICATION_KINDS = ", ".join(f"'{kind.value}'" for kind in SMSNotificationKind)
-SMS_LANGUAGES = ", ".join(f"'{language.value}'" for language in SMSLanguage)
+NOTIFICATION_CHANNELS = ", ".join(
+    f"'{channel.value}'" for channel in NotificationChannel
+)
+NOTIFICATION_KINDS = ", ".join(f"'{kind.value}'" for kind in NotificationKind)
+NOTIFICATION_LANGUAGES = ", ".join(
+    f"'{language.value}'" for language in NotificationLanguage
+)
 
 
 class BookingNotification(TimestampMixin, Base):
-    """A booking-scoped SMS event that can be claimed by one worker at a time."""
+    """A booking-scoped event that can be claimed by one dispatcher at a time."""
 
     __tablename__ = "booking_notifications"
     __table_args__ = (
-        CheckConstraint("channel = 'sms'", name="sms_channel_only"),
+        CheckConstraint(
+            f"channel IN ({NOTIFICATION_CHANNELS})",
+            name="valid_channel",
+        ),
         CheckConstraint(
             f"kind IN ({NOTIFICATION_KINDS})",
             name="valid_kind",
         ),
         CheckConstraint(
-            f"language IN ({SMS_LANGUAGES})",
+            f"language IN ({NOTIFICATION_LANGUAGES})",
             name="valid_language",
         ),
         CheckConstraint(
@@ -75,14 +88,14 @@ class BookingNotification(TimestampMixin, Base):
         index=True,
     )
     channel: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="sms", server_default="sms"
+        String(16), nullable=False
     )
     kind: Mapped[str] = mapped_column(String(50), nullable=False)
     language: Mapped[str] = mapped_column(
         String(8),
         nullable=False,
-        default=SMSLanguage.ENGLISH.value,
-        server_default=SMSLanguage.ENGLISH.value,
+        default=NotificationLanguage.ENGLISH.value,
+        server_default=NotificationLanguage.ENGLISH.value,
     )
     status: Mapped[str] = mapped_column(
         String(20),

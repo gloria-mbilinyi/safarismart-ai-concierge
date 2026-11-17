@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +14,9 @@ from app.api.router import api_router
 from app.config import Settings, get_settings
 from app.db.session import Database
 from app.integrations.concierge_provider import build_concierge_provider
+from app.services.notification_delivery import build_notification_delivery_services
 from app.services.rate_limit import SlidingWindowRateLimiter
+from app.workers.sms_outbox import BoundedNotificationRunner
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -21,14 +24,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app_settings = settings or get_settings()
     database = Database(app_settings.database_url)
+    notification_runner = BoundedNotificationRunner(
+        database.session_factory,
+        build_notification_delivery_services(app_settings),
+        max_messages=app_settings.notification_dispatch_batch_size,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         """Release database resources when the application stops."""
 
+        stop_dispatch = asyncio.Event()
+
+        async def dispatch_while_active() -> None:
+            """Drain bounded batches without keeping a sleeping host awake."""
+
+            await asyncio.to_thread(notification_runner.drain_safely)
+            while True:
+                try:
+                    await asyncio.wait_for(
+                        stop_dispatch.wait(),
+                        timeout=app_settings.notification_dispatch_interval_seconds,
+                    )
+                    return
+                except TimeoutError:
+                    await asyncio.to_thread(notification_runner.drain_safely)
+
+        dispatch_task = (
+            asyncio.create_task(dispatch_while_active())
+            if notification_runner.configured_channels
+            else None
+        )
         try:
             yield
         finally:
+            if dispatch_task is not None:
+                stop_dispatch.set()
+                await dispatch_task
             database.dispose()
 
     application = FastAPI(
@@ -40,9 +72,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.database = database
     application.state.settings = app_settings
     application.state.concierge_provider = build_concierge_provider(app_settings)
+    application.state.notification_runner = notification_runner
     application.state.ussd_rate_limiter = SlidingWindowRateLimiter(
         app_settings.ussd_rate_limit_per_minute,
         max_tracked_keys=app_settings.ussd_rate_limit_max_sessions,
+    )
+    application.state.booking_rate_limiter = SlidingWindowRateLimiter(
+        app_settings.booking_rate_limit_per_minute,
+        max_tracked_keys=app_settings.booking_rate_limit_max_clients,
     )
     application.add_middleware(
         CORSMiddleware,

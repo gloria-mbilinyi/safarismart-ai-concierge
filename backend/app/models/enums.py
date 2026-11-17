@@ -33,8 +33,15 @@ class StatusActorType(StrEnum):
     SYSTEM = "system"
 
 
-class SMSNotificationKind(StrEnum):
-    """Supported booking SMS events."""
+class NotificationChannel(StrEnum):
+    """Customer-selected transactional notification channels."""
+
+    EMAIL = "email"
+    SMS = "sms"
+
+
+class NotificationKind(StrEnum):
+    """Supported booking notification events."""
 
     BOOKING_RECEIVED = "booking_received"
     STATUS_UPDATED = "status_updated"
@@ -43,11 +50,16 @@ class SMSNotificationKind(StrEnum):
     SYNTHETIC_BOOKING_CONFIRMED = "synthetic_booking_confirmed"
 
 
-class SMSLanguage(StrEnum):
-    """Languages available for transactional SMS templates."""
+class NotificationLanguage(StrEnum):
+    """Languages available for transactional notification templates."""
 
     ENGLISH = "en"
     SWAHILI = "sw"
+
+
+# Backwards-compatible imports for existing SMS-specific modules and clients.
+SMSNotificationKind = NotificationKind
+SMSLanguage = NotificationLanguage
 
 
 class NotificationStatus(StrEnum):

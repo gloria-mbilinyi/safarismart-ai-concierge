@@ -141,6 +141,7 @@ def transition_booking(
         session,
         booking,
         notification_kind_for_status(target_status),
+        language=booking.customer_language,
     )
     session.add(booking)
     if commit:

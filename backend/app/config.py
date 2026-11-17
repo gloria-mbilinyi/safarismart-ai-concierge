@@ -2,10 +2,12 @@
 
 from functools import lru_cache
 from pathlib import Path
+import re
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import EmailStr, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -20,7 +22,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api"
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     frontend_dist_path: str | None = None
-    database_url: str = "postgresql+psycopg://localhost/safarismart"
+    database_url: str = Field(
+        default="postgresql+psycopg://localhost/safarismart",
+        repr=False,
+    )
     auth_secret_key: SecretStr | None = None
     auth_access_token_expire_minutes: int = Field(default=30, ge=5, le=1440)
     auth_issuer: str = "safarismart-api"
@@ -31,12 +36,25 @@ class Settings(BaseSettings):
     africastalking_username: str | None = None
     africastalking_api_key: SecretStr | None = None
     africastalking_sender_id: str | None = None
+    email_enabled: bool = False
+    resend_api_key: SecretStr | None = None
+    resend_from_email: EmailStr | None = None
+    resend_from_name: str = Field(
+        default="SafariSmart AI Concierge", min_length=1, max_length=100
+    )
+    resend_timeout_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
     ai_provider: Literal["fallback", "ollama"] = "fallback"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"
     ollama_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
     ussd_rate_limit_per_minute: int = Field(default=30, ge=1, le=120)
     ussd_rate_limit_max_sessions: int = Field(default=10_000, ge=100, le=100_000)
+    booking_rate_limit_per_minute: int = Field(default=5, ge=1, le=60)
+    booking_rate_limit_max_clients: int = Field(default=10_000, ge=100, le=100_000)
+    notification_dispatch_batch_size: int = Field(default=10, ge=1, le=100)
+    notification_dispatch_interval_seconds: float = Field(
+        default=30.0, ge=10.0, le=300.0
+    )
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -101,6 +119,8 @@ class Settings(BaseSettings):
         "africastalking_username",
         "africastalking_api_key",
         "africastalking_sender_id",
+        "resend_api_key",
+        "resend_from_email",
         mode="before",
     )
     @classmethod
@@ -137,6 +157,53 @@ class Settings(BaseSettings):
                     "APP_DEBUG cannot be enabled in staging or production"
                 )
 
+            database = make_url(self.database_url)
+            if database.drivername != "postgresql+psycopg":
+                raise ValueError(
+                    "DATABASE_URL must use the postgresql+psycopg driver"
+                )
+            if (database.host or "").endswith(".neon.tech") and database.query.get(
+                "sslmode"
+            ) not in {"require", "verify-ca", "verify-full"}:
+                raise ValueError(
+                    "Neon DATABASE_URL must require PostgreSQL TLS"
+                )
+
+        return self
+
+    @field_validator("resend_from_name")
+    @classmethod
+    def validate_resend_from_name(cls, value: str) -> str:
+        """Keep the public sender label bounded and header-safe."""
+
+        normalized = value.strip()
+        if not normalized or re.search(r"[\r\n<>]", normalized):
+            raise ValueError("RESEND_FROM_NAME must be a single non-empty line")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_email_configuration(self) -> "Settings":
+        """Require a verified sender and secret key whenever email is enabled."""
+
+        has_key = self.resend_api_key is not None
+        has_sender = self.resend_from_email is not None
+        if self.email_enabled and not (has_key and has_sender):
+            raise ValueError(
+                "RESEND_API_KEY and RESEND_FROM_EMAIL are required when email is enabled"
+            )
+        if has_key != has_sender:
+            raise ValueError(
+                "RESEND_API_KEY and RESEND_FROM_EMAIL must be configured together"
+            )
+        if self.resend_api_key is not None:
+            secret = self.resend_api_key.get_secret_value().strip()
+            insecure_markers = ("placeholder", "your-api-key", "change-me", "<", ">")
+            if (
+                not secret.startswith("re_")
+                or len(secret) < 16
+                or any(marker in secret.lower() for marker in insecure_markers)
+            ):
+                raise ValueError("RESEND_API_KEY is not a valid configured key")
         return self
 
     @model_validator(mode="after")

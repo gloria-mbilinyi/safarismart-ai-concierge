@@ -1,5 +1,6 @@
-"""Transactional SMS outbox scheduling, claiming, retries, and delivery updates."""
+"""Transactional notification scheduling, claiming, retries, and outcomes."""
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import re
@@ -8,15 +9,18 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
-from app.integrations.africastalking_sms import SMSDeliveryError
+from app.integrations.notification_provider import NotificationDeliveryError
 from app.models.booking import BookingRequest
 from app.models.enums import (
     BookingStatus,
+    NotificationChannel,
+    NotificationKind,
+    NotificationLanguage,
     NotificationStatus,
-    SMSLanguage,
-    SMSNotificationKind,
 )
 from app.models.notification import BookingNotification
+from app.services.email_notifications import prepare_booking_email
+from app.services.notification_delivery import NotificationDeliveryServices
 from app.services.sms_notifications import (
     SMSNotificationService,
     prepare_booking_sms,
@@ -48,25 +52,26 @@ class NotificationProcessResult:
     attempt_count: int
 
 
-def notification_kind_for_status(status: BookingStatus) -> SMSNotificationKind:
+def notification_kind_for_status(status: BookingStatus) -> NotificationKind:
     """Select the safest specific template for a workflow transition."""
 
     return {
-        BookingStatus.QUOTED: SMSNotificationKind.SYNTHETIC_QUOTE_AVAILABLE,
-        BookingStatus.REJECTED: SMSNotificationKind.BOOKING_REJECTED,
-        BookingStatus.CONFIRMED: SMSNotificationKind.SYNTHETIC_BOOKING_CONFIRMED,
-    }.get(status, SMSNotificationKind.STATUS_UPDATED)
+        BookingStatus.QUOTED: NotificationKind.SYNTHETIC_QUOTE_AVAILABLE,
+        BookingStatus.REJECTED: NotificationKind.BOOKING_REJECTED,
+        BookingStatus.CONFIRMED: NotificationKind.SYNTHETIC_BOOKING_CONFIRMED,
+    }.get(status, NotificationKind.STATUS_UPDATED)
 
 
 def notification_idempotency_key(
     booking: BookingRequest,
-    kind: SMSNotificationKind,
-    language: SMSLanguage,
+    channel: NotificationChannel,
+    kind: NotificationKind,
+    language: NotificationLanguage,
 ) -> str:
     """Build a deterministic key for one booking event and language."""
 
     return (
-        f"sms:{booking.booking_reference}:{kind.value}:"
+        f"{channel.value}:{booking.booking_reference}:{kind.value}:"
         f"{booking.status}:{language.value}"
     )
 
@@ -74,20 +79,42 @@ def notification_idempotency_key(
 def schedule_booking_notification(
     session: Session,
     booking: BookingRequest,
-    kind: SMSNotificationKind,
-    language: SMSLanguage = SMSLanguage.ENGLISH,
+    kind: NotificationKind,
+    language: NotificationLanguage | str = NotificationLanguage.ENGLISH,
     *,
     max_attempts: int = 3,
     now: datetime | None = None,
 ) -> tuple[BookingNotification | None, bool]:
     """Add one permitted event to the current transaction without sending it."""
 
-    if prepare_booking_sms(booking, kind, language) is None:
+    normalized_language = NotificationLanguage(language)
+    if booking.customer_contact_preference == "phone":
+        channel = NotificationChannel.SMS
+    elif booking.customer_contact_preference == "email":
+        channel = NotificationChannel.EMAIL
+    else:
         return None, False
     if not 1 <= max_attempts <= 10:
         raise ValueError("max_attempts must be between 1 and 10")
 
-    key = notification_idempotency_key(booking, kind, language)
+    key = notification_idempotency_key(
+        booking,
+        channel,
+        kind,
+        normalized_language,
+    )
+    prepared = (
+        prepare_booking_sms(booking, kind, normalized_language)
+        if channel is NotificationChannel.SMS
+        else prepare_booking_email(
+            booking,
+            kind,
+            normalized_language,
+            key,
+        )
+    )
+    if prepared is None:
+        return None, False
     for pending in session.new:
         if (
             isinstance(pending, BookingNotification)
@@ -105,8 +132,9 @@ def schedule_booking_notification(
 
     notification = BookingNotification(
         booking_request=booking,
+        channel=channel.value,
         kind=kind.value,
-        language=language.value,
+        language=normalized_language.value,
         idempotency_key=key,
         max_attempts=max_attempts,
         next_attempt_at=now or datetime.now(UTC),
@@ -119,6 +147,7 @@ def claim_next_notification(
     session: Session,
     *,
     now: datetime | None = None,
+    channels: Collection[NotificationChannel] | None = None,
 ) -> NotificationClaim | None:
     """Atomically lease one due event, using SKIP LOCKED on PostgreSQL."""
 
@@ -131,12 +160,19 @@ def claim_next_notification(
         BookingNotification.status == NotificationStatus.PROCESSING.value,
         BookingNotification.claim_expires_at <= claimed_at,
     )
+    if channels is not None and not channels:
+        return None
+    conditions = [
+        or_(due_queued, expired_claim),
+        BookingNotification.attempt_count < BookingNotification.max_attempts,
+    ]
+    if channels is not None:
+        conditions.append(
+            BookingNotification.channel.in_(channel.value for channel in channels)
+        )
     statement = (
         select(BookingNotification)
-        .where(
-            or_(due_queued, expired_claim),
-            BookingNotification.attempt_count < BookingNotification.max_attempts,
-        )
+        .where(*conditions)
         .order_by(
             BookingNotification.next_attempt_at.asc(),
             BookingNotification.created_at.asc(),
@@ -225,15 +261,21 @@ def _finish_failure(
 
 def process_next_notification(
     session_factory: sessionmaker[Session],
-    service: SMSNotificationService,
+    services: NotificationDeliveryServices | SMSNotificationService,
     *,
     now: datetime | None = None,
 ) -> NotificationProcessResult | None:
-    """Claim, close the transaction, call SMS, then persist the safe outcome."""
+    """Claim, close the transaction, call one provider, then persist its outcome."""
 
     processed_at = now or datetime.now(UTC)
+    if isinstance(services, SMSNotificationService):
+        services = NotificationDeliveryServices(sms=services)
     with session_factory() as session:
-        claim = claim_next_notification(session, now=processed_at)
+        claim = claim_next_notification(
+            session,
+            now=processed_at,
+            channels=services.configured_channels,
+        )
     if claim is None:
         return None
 
@@ -245,10 +287,13 @@ def process_next_notification(
                 NotificationStatus.UNKNOWN,
                 0,
             )
-        prepared = prepare_booking_sms(
+        channel = NotificationChannel(notification.channel)
+        prepared = services.prepare(
             notification.booking_request,
-            SMSNotificationKind(notification.kind),
-            SMSLanguage(notification.language),
+            channel,
+            NotificationKind(notification.kind),
+            NotificationLanguage(notification.language),
+            notification.idempotency_key,
         )
 
     if prepared is None:
@@ -261,8 +306,8 @@ def process_next_notification(
         )
 
     try:
-        provider_result = service.send_prepared(prepared)
-    except SMSDeliveryError as error:
+        provider_result = services.send_prepared(channel, prepared)
+    except NotificationDeliveryError as error:
         return _finish_failure(
             session_factory,
             claim,
@@ -314,7 +359,10 @@ def record_sms_delivery_status(
 
     notification = session.scalar(
         select(BookingNotification)
-        .where(BookingNotification.provider_message_id == provider_message_id)
+        .where(
+            BookingNotification.channel == NotificationChannel.SMS.value,
+            BookingNotification.provider_message_id == provider_message_id,
+        )
         .order_by(BookingNotification.created_at.desc())
         .limit(1)
     )

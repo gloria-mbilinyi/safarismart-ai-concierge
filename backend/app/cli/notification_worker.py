@@ -1,4 +1,4 @@
-"""Run the consent-aware Africa's Talking SMS outbox worker."""
+"""Run the consent-aware booking notification outbox dispatcher."""
 
 import argparse
 
@@ -6,9 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.session import Database
-from app.integrations.africastalking_sms import SMSConfigurationError
-from app.integrations.sms_provider import build_sms_provider
-from app.services.sms_notifications import SMSNotificationService
+from app.services.notification_delivery import build_notification_delivery_services
 from app.workers.sms_outbox import drain_due_notifications, run_continuously
 
 
@@ -16,7 +14,7 @@ def parse_args() -> argparse.Namespace:
     """Choose a bounded drain for jobs or continuous polling for a worker."""
 
     parser = argparse.ArgumentParser(
-        description="Process queued, consent-aware SafariSmart SMS notifications."
+        description="Process queued, consent-aware SafariSmart notifications."
     )
     parser.add_argument(
         "--drain",
@@ -43,8 +41,9 @@ def main() -> None:
 
     args = parse_args()
     settings = get_settings()
-    if not settings.sms_enabled:
-        raise SystemExit("SMS worker is not configured: SMS sending is disabled")
+    services = build_notification_delivery_services(settings)
+    if not services.configured_channels:
+        raise SystemExit("Notification dispatcher has no configured providers")
 
     database = Database(settings.database_url)
     try:
@@ -55,37 +54,30 @@ def main() -> None:
         raise SystemExit("SMS worker database is unavailable") from None
 
     try:
-        provider = build_sms_provider(settings)
-    except SMSConfigurationError as error:
-        database.dispose()
-        raise SystemExit(f"SMS worker is not configured: {error}") from None
-
-    service = SMSNotificationService(provider)
-    try:
         if args.drain:
             summary = drain_due_notifications(
                 database.session_factory,
-                service,
+                services,
                 max_messages=args.max_messages,
             )
             print(
-                "SMS outbox drain complete: "
+                "Notification outbox drain complete: "
                 f"processed={summary.processed}, accepted={summary.accepted}, "
                 f"requeued={summary.requeued}, failed={summary.failed}, "
                 f"unknown={summary.unknown}"
             )
         else:
             print(
-                f"SafariSmart SMS outbox worker started ({settings.sms_provider}).",
+                "SafariSmart notification outbox dispatcher started.",
                 flush=True,
             )
             run_continuously(
                 database.session_factory,
-                service,
+                services,
                 poll_seconds=args.poll_seconds,
             )
     except KeyboardInterrupt:
-        print("SafariSmart SMS outbox worker stopped.")
+        print("SafariSmart notification dispatcher stopped.")
     except SQLAlchemyError:
         raise SystemExit("SMS worker database operation failed") from None
     finally:

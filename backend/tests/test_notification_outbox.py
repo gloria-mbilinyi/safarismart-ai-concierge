@@ -2,7 +2,7 @@
 
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -10,7 +10,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import Database
+from app.config import Settings
+from app.main import create_app
 from app.integrations.africastalking_sms import SMSDeliveryError, SMSResult
+from app.integrations.notification_provider import ProviderAcceptance
+from app.integrations.resend_email import EmailDeliveryError
 from app.models import BookingNotification, BookingRequest, Destination, Operator
 from app.models.enums import (
     BookingStatus,
@@ -26,6 +30,8 @@ from app.services.notification_outbox import (
     record_sms_delivery_status,
     schedule_booking_notification,
 )
+from app.services.email_notifications import EmailNotificationService
+from app.services.notification_delivery import NotificationDeliveryServices
 from app.services.sms_notifications import SMSNotificationService
 
 
@@ -86,25 +92,181 @@ def test_booking_replay_schedules_exactly_one_received_notification(
     assert first_reference == second_reference
     assert len(notifications) == 1
     assert notifications[0].kind == SMSNotificationKind.BOOKING_RECEIVED.value
+    assert notifications[0].channel == "sms"
     assert notifications[0].status == NotificationStatus.QUEUED.value
     assert first_reference in notifications[0].idempotency_key
 
 
-def test_email_preference_does_not_schedule_sms(
+def test_email_preference_schedules_email_only(
     client: TestClient,
     db_session: Session,
     seeded_destinations: list[Destination],
 ) -> None:
+    headers = {"Idempotency-Key": f"email-only-{uuid4().hex}"}
+    payload = booking_payload(seeded_destinations[0].id, phone_contact=False)
     response = client.post(
         "/api/v1/bookings",
-        headers={"Idempotency-Key": f"email-only-{uuid4().hex}"},
-        json=booking_payload(seeded_destinations[0].id, phone_contact=False),
+        headers=headers,
+        json=payload,
     )
+    replay = client.post("/api/v1/bookings", headers=headers, json=payload)
 
     assert response.status_code == 201
-    assert db_session.scalar(
-        select(func.count()).select_from(BookingNotification)
-    ) == 0
+    assert replay.status_code == 200
+    assert replay.json()["booking_reference"] == response.json()["booking_reference"]
+    notification = db_session.scalar(select(BookingNotification))
+    assert notification is not None
+    assert notification.channel == "email"
+    assert notification.kind == SMSNotificationKind.BOOKING_RECEIVED.value
+    assert notification.attempt_count == 0
+
+
+def test_email_outbox_uses_reference_and_provider_idempotency(
+    database: Database,
+    client: TestClient,
+    seeded_destinations: list[Destination],
+) -> None:
+    response = client.post(
+        "/api/v1/bookings",
+        headers={"Idempotency-Key": f"email-send-{uuid4().hex}"},
+        json=booking_payload(seeded_destinations[0].id, phone_contact=False),
+    )
+    assert response.status_code == 201
+    reference = response.json()["booking_reference"]
+    provider = Mock()
+    provider.send.return_value = ProviderAcceptance(
+        status="accepted", message_id="resend-message-001"
+    )
+
+    result = process_next_notification(
+        database.session_factory,
+        NotificationDeliveryServices(
+            email=EmailNotificationService(provider),
+        ),
+        now=NOW,
+    )
+
+    assert result is not None
+    assert result.status is NotificationStatus.ACCEPTED
+    kwargs = provider.send.call_args.kwargs
+    assert reference in kwargs["text"]
+    assert kwargs["idempotency_key"].startswith(f"email:{reference}:")
+    with database.session_factory() as session:
+        notification = session.get(BookingNotification, result.notification_id)
+        assert notification is not None
+        assert notification.channel == "email"
+        assert notification.provider_message_id == "resend-message-001"
+        assert notification.delivered_at is None
+
+
+def test_dispatcher_never_switches_an_email_job_to_sms(
+    database: Database,
+    client: TestClient,
+    seeded_destinations: list[Destination],
+) -> None:
+    response = client.post(
+        "/api/v1/bookings",
+        headers={"Idempotency-Key": f"email-no-switch-{uuid4().hex}"},
+        json=booking_payload(seeded_destinations[0].id, phone_contact=False),
+    )
+    assert response.status_code == 201
+    sms_provider = Mock()
+
+    result = process_next_notification(
+        database.session_factory,
+        SMSNotificationService(sms_provider),
+        now=NOW,
+    )
+
+    assert result is None
+    sms_provider.send.assert_not_called()
+    with database.session_factory() as session:
+        notification = session.scalar(select(BookingNotification))
+        assert notification is not None
+        assert notification.channel == "email"
+        assert notification.status == NotificationStatus.QUEUED.value
+        assert notification.attempt_count == 0
+
+
+def test_transient_email_failure_requeues_without_exposing_provider_detail(
+    database: Database,
+    client: TestClient,
+    seeded_destinations: list[Destination],
+) -> None:
+    response = client.post(
+        "/api/v1/bookings",
+        headers={"Idempotency-Key": f"email-retry-{uuid4().hex}"},
+        json=booking_payload(seeded_destinations[0].id, phone_contact=False),
+    )
+    assert response.status_code == 201
+    provider = Mock()
+    provider.send.side_effect = EmailDeliveryError(
+        "private provider response",
+        retryable=True,
+        code="provider_http_503",
+    )
+
+    result = process_next_notification(
+        database.session_factory,
+        NotificationDeliveryServices(
+            email=EmailNotificationService(provider),
+        ),
+        now=NOW,
+    )
+
+    assert result is not None
+    assert result.status is NotificationStatus.QUEUED
+    with database.session_factory() as session:
+        notification = session.get(BookingNotification, result.notification_id)
+        assert notification is not None
+        assert notification.last_error_code == "provider_http_503"
+        assert "private" not in notification.last_error_code
+
+
+def test_web_submission_triggers_bounded_post_commit_email_dispatch(
+    database: Database,
+    seeded_destinations: list[Destination],
+) -> None:
+    provider = Mock()
+    provider.send.return_value = ProviderAcceptance(
+        status="accepted", message_id="post-commit-email-id"
+    )
+    services = NotificationDeliveryServices(
+        email=EmailNotificationService(provider),
+    )
+    settings = Settings(
+        app_env="test",
+        database_url=str(database.engine.url),
+        notification_dispatch_interval_seconds=300,
+        _env_file=None,
+    )
+
+    with patch(
+        "app.main.build_notification_delivery_services",
+        return_value=services,
+    ):
+        with TestClient(create_app(settings)) as configured_client:
+            response = configured_client.post(
+                "/api/v1/bookings",
+                headers={"Idempotency-Key": f"post-commit-{uuid4().hex}"},
+                json=booking_payload(
+                    seeded_destinations[0].id,
+                    phone_contact=False,
+                ),
+            )
+
+    assert response.status_code == 201
+    assert response.json()["notification"] == {
+        "channel": "email",
+        "state": "queued",
+        "mode": "resend",
+    }
+    provider.send.assert_called_once()
+    with database.session_factory() as session:
+        notification = session.scalar(select(BookingNotification))
+        assert notification is not None
+        assert notification.status == NotificationStatus.ACCEPTED.value
+        assert notification.provider_message_id == "post-commit-email-id"
 
 
 def test_workflow_transition_schedules_specific_event_once(
