@@ -4,6 +4,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.destination import Destination
+from app.config import Settings
+from app.db.session import Database
+from app.main import create_app
 
 
 CALLBACK = "/api/v1/ussd"
@@ -111,3 +114,52 @@ def test_empty_catalog_fails_closed(client: TestClient) -> None:
 def test_missing_callback_metadata_is_rejected(client: TestClient) -> None:
     response = client.post(CALLBACK, data={"text": "1"})
     assert response.status_code == 422
+
+
+def test_callback_rejects_malformed_provider_metadata(client: TestClient) -> None:
+    """Malformed service codes and phone numbers fail before menu processing."""
+
+    invalid_service = client.post(
+        CALLBACK,
+        data={
+            "sessionId": "synthetic-ussd-session",
+            "serviceCode": "javascript:alert(1)",
+            "phoneNumber": "+255700000001",
+            "text": "",
+        },
+    )
+    invalid_phone = client.post(
+        CALLBACK,
+        data={
+            "sessionId": "synthetic-ussd-session",
+            "serviceCode": "*384*123#",
+            "phoneNumber": "0700000001",
+            "text": "",
+        },
+    )
+
+    assert invalid_service.status_code == 422
+    assert invalid_phone.status_code == 422
+
+
+def test_callback_rate_limit_ends_session_without_echoing_identifier(
+    database: Database,
+) -> None:
+    """Repeated callbacks fail closed with an AT-compatible terminal response."""
+
+    settings = Settings(
+        app_env="test",
+        database_url=str(database.engine.url),
+        ussd_rate_limit_per_minute=2,
+        _env_file=None,
+    )
+    with TestClient(create_app(settings)) as limited_client:
+        first = dial(limited_client)
+        second = dial(limited_client, "1")
+        limited = dial(limited_client, "1*1")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert limited.status_code == 200
+    assert limited.text.startswith("END SafariSmart is busy")
+    assert "synthetic-ussd-session" not in limited.text

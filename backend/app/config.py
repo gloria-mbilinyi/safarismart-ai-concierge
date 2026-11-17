@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"
     ollama_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
+    ussd_rate_limit_per_minute: int = Field(default=30, ge=1, le=120)
+    ussd_rate_limit_max_sessions: int = Field(default=10_000, ge=100, le=100_000)
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
