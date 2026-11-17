@@ -19,10 +19,15 @@ from app.schemas.concierge import (
     ConciergeLanguage,
     ItineraryDay,
     PlanDestination,
+    PlanningMode,
     TravelInterest,
     TripPlanRequest,
     TripPlanResponse,
 )
+
+
+class DestinationSelectionError(ValueError):
+    """Raised when an explicit plan references unavailable catalog rows."""
 
 
 INJECTION_MARKERS = (
@@ -202,32 +207,124 @@ def _plan_destination(
     )
 
 
-def _day_focus(destination: Destination, swahili: bool) -> str:
-    """Return a high-level activity theme based only on the catalog category."""
+DAY_FOCUSES: dict[str, dict[bool, tuple[str, ...]]] = {
+    DestinationCategory.NATIONAL_PARK.value: {
+        False: (
+            "Get oriented to the park landscape and its ecosystem",
+            "Focus on wildlife observation themes supported by the catalog",
+            "Explore how the landscape shapes the destination's character",
+            "Make space for responsible nature appreciation and reflection",
+        ),
+        True: (
+            "Fahamu mandhari ya hifadhi na mfumo wake wa ikolojia",
+            "Zingatia mada za kutazama wanyamapori zilizopo kwenye orodha",
+            "Gundua jinsi mandhari inavyounda tabia ya eneo hili",
+            "Tenga muda wa kuthamini mazingira kwa uwajibikaji",
+        ),
+    },
+    DestinationCategory.CONSERVATION_AREA.value: {
+        False: (
+            "Get oriented to the conservation landscape",
+            "Learn about the relationship between wildlife and communities",
+            "Focus on the area's natural and cultural context",
+            "Reflect on responsible travel in a shared landscape",
+        ),
+        True: (
+            "Fahamu mandhari ya eneo la uhifadhi",
+            "Jifunze uhusiano kati ya wanyamapori na jamii",
+            "Zingatia mazingira ya asili na utamaduni wa eneo",
+            "Tafakari kuhusu safari yenye uwajibikaji katika mandhari ya pamoja",
+        ),
+    },
+    DestinationCategory.MOUNTAIN.value: {
+        False: (
+            "Understand the mountain environment and established route themes",
+            "Consider the ecological zones described by the catalog",
+            "Plan a pace suited to your ability without assuming a booked route",
+            "Focus on preparation and responsible mountain travel",
+        ),
+        True: (
+            "Fahamu mazingira ya mlima na mada za njia zinazotambulika",
+            "Zingatia kanda za ikolojia zilizoelezwa kwenye orodha",
+            "Panga mwendo unaofaa uwezo wako bila kudhani njia imehifadhiwa",
+            "Zingatia maandalizi na safari ya mlima yenye uwajibikaji",
+        ),
+    },
+    DestinationCategory.BEACH.value: {
+        False: (
+            "Get oriented to the coastal landscape and setting",
+            "Explore the destination's Swahili cultural themes",
+            "Focus on the beach and Indian Ocean environment",
+            "Use the catalog's historic and local-tradition themes for discovery",
+        ),
+        True: (
+            "Fahamu mandhari na mazingira ya pwani",
+            "Gundua mada za utamaduni wa Kiswahili wa eneo hili",
+            "Zingatia mazingira ya fukwe na Bahari ya Hindi",
+            "Tumia mada za historia na mila katika orodha kwa ugunduzi",
+        ),
+    },
+}
 
-    focuses = {
-        DestinationCategory.NATIONAL_PARK.value: (
-            "Gundua mandhari na mfumo wa ikolojia wa hifadhi"
-            if swahili
-            else "Explore the park landscape and ecosystem"
-        ),
-        DestinationCategory.CONSERVATION_AREA.value: (
-            "Jifunze kuhusu mandhari ya uhifadhi na jamii"
-            if swahili
-            else "Learn about the conservation landscape and communities"
-        ),
-        DestinationCategory.MOUNTAIN.value: (
-            "Panga uzoefu wa mazingira ya mlima unaofaa uwezo wako"
-            if swahili
-            else "Plan a mountain-environment experience suited to your ability"
-        ),
-        DestinationCategory.BEACH.value: (
-            "Gundua mazingira ya pwani na utamaduni wa Kiswahili"
-            if swahili
-            else "Explore the coast and Swahili cultural setting"
-        ),
-    }
-    return focuses[destination.category]
+
+def _day_focus(destination: Destination, swahili: bool, visit_index: int) -> str:
+    """Rotate grounded category themes without inventing timed activities."""
+
+    focuses = DAY_FOCUSES[destination.category][swahili]
+    return focuses[visit_index % len(focuses)]
+
+
+def _planning_candidates(
+    destinations: list[Destination],
+    request: TripPlanRequest,
+) -> list[Destination]:
+    """Enforce the requested destination scope before any optional ranking."""
+
+    if request.planning_mode == PlanningMode.EXPLORE_TANZANIA:
+        return _score_destinations(
+            destinations,
+            request.interests,
+            request.preferred_region,
+        )
+
+    by_id = {destination.id: destination for destination in destinations}
+    if any(
+        destination_id not in by_id
+        for destination_id in request.destination_ids
+    ):
+        raise DestinationSelectionError(
+            "One or more selected destinations are unavailable"
+        )
+    return [by_id[destination_id] for destination_id in request.destination_ids]
+
+
+def _build_itinerary(
+    selected: list[Destination],
+    request: TripPlanRequest,
+) -> list[ItineraryDay]:
+    """Build day themes using only the already-authorized destination set."""
+
+    swahili = request.language == ConciergeLanguage.SWAHILI
+    visit_counts = {destination.id: 0 for destination in selected}
+    itinerary: list[ItineraryDay] = []
+    for day in range(1, request.days + 1):
+        destination = selected[(day - 1) % len(selected)]
+        visit_index = visit_counts[destination.id]
+        visit_counts[destination.id] += 1
+        itinerary.append(
+            ItineraryDay(
+                day=day,
+                title=(
+                    f"Siku ya {day}: {destination.name}"
+                    if swahili
+                    else f"Day {day}: {destination.name}"
+                ),
+                destination_id=destination.id,
+                destination_name=destination.name,
+                focus=_day_focus(destination, swahili, visit_index),
+            )
+        )
+    return itinerary
 
 
 def create_trip_plan(
@@ -237,23 +334,25 @@ def create_trip_plan(
 ) -> TripPlanResponse:
     """Create a high-level itinerary entirely from active destination records."""
 
-    ranked = _score_destinations(
-        _active_destinations(session),
-        request.interests,
-        request.preferred_region,
-    )
+    candidates = _planning_candidates(_active_destinations(session), request)
+    ranked = candidates
     ranked, generation_mode = _apply_optional_ranking(
         ranked,
         request.interests,
         request.preferred_region,
         provider,
     )
-    selected = ranked[: min(4, request.days)]
+    selected = (
+        ranked[: min(4, request.days)]
+        if request.planning_mode == PlanningMode.EXPLORE_TANZANIA
+        else ranked
+    )
     swahili = request.language == ConciergeLanguage.SWAHILI
 
     if not selected:
         return TripPlanResponse(
             generation_mode="rule_based_fallback",
+            planning_mode=request.planning_mode,
             title="Hakuna maeneo yanayopatikana" if swahili else "No destinations available",
             summary=(
                 "Orodha ya maeneo haijajazwa bado. Jaribu tena baada ya msimamizi kuweka data."
@@ -265,26 +364,25 @@ def create_trip_plan(
             disclaimer=_disclaimer(swahili),
         )
 
-    itinerary = [
-        ItineraryDay(
-            day=day,
-            title=(
-                f"Siku ya {day}: {destination.name}"
-                if swahili
-                else f"Day {day}: {destination.name}"
-            ),
-            destination_id=destination.id,
-            destination_name=destination.name,
-            focus=_day_focus(destination, swahili),
+    itinerary = _build_itinerary(selected, request)
+    if request.planning_mode == PlanningMode.SINGLE_DESTINATION:
+        title = (
+            f"Wazo la siku {request.days}: {selected[0].name}"
+            if swahili
+            else f"{request.days}-day {selected[0].name} trip idea"
         )
-        for day in range(1, request.days + 1)
-        for destination in [selected[(day - 1) % len(selected)]]
-    ]
-    title = (
-        f"Wazo la safari ya siku {request.days} Tanzania"
-        if swahili
-        else f"{request.days}-day Tanzania trip idea"
-    )
+    elif request.planning_mode == PlanningMode.MULTIPLE_DESTINATIONS:
+        title = (
+            f"Wazo la safari ya maeneo uliyochagua kwa siku {request.days}"
+            if swahili
+            else f"{request.days}-day selected-destinations trip idea"
+        )
+    else:
+        title = (
+            f"Wazo la safari ya siku {request.days} Tanzania"
+            if swahili
+            else f"{request.days}-day Tanzania trip idea"
+        )
     if swahili:
         summary = (
             f"Pendekezo la kiwango cha {request.budget_style.value} kwa watu "
@@ -307,6 +405,7 @@ def create_trip_plan(
             )
     return TripPlanResponse(
         generation_mode=generation_mode,
+        planning_mode=request.planning_mode,
         title=title,
         summary=summary,
         destinations=[

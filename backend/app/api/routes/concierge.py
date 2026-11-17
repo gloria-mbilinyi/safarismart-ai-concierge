@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
@@ -12,7 +12,11 @@ from app.schemas.concierge import (
     TripPlanRequest,
     TripPlanResponse,
 )
-from app.services.concierge import chat_about_destinations, create_trip_plan
+from app.services.concierge import (
+    DestinationSelectionError,
+    chat_about_destinations,
+    create_trip_plan,
+)
 
 
 router = APIRouter(prefix="/v1/concierge", tags=["concierge"])
@@ -26,11 +30,17 @@ def plan_trip(
 ) -> TripPlanResponse:
     """Build a high-level trip idea using only active catalog destinations."""
 
-    return create_trip_plan(
-        session,
-        payload,
-        request.app.state.concierge_provider,
-    )
+    try:
+        return create_trip_plan(
+            session,
+            payload,
+            request.app.state.concierge_provider,
+        )
+    except DestinationSelectionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
 
 
 @router.post("/chat", response_model=ConciergeChatResponse)
