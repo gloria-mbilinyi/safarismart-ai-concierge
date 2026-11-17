@@ -51,6 +51,10 @@ class AfricasTalkingSMSProvider:
 
         if not settings.sms_enabled:
             raise SMSConfigurationError("SMS sending is disabled")
+        if settings.sms_provider != "africastalking":
+            raise SMSConfigurationError(
+                "Africa's Talking is not the configured SMS provider"
+            )
         if (
             settings.africastalking_username is None
             or settings.africastalking_api_key is None

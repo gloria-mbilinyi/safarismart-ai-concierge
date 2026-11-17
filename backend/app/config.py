@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     auth_issuer: str = "safarismart-api"
     auth_audience: str = "safarismart-operator"
     sms_enabled: bool = False
+    sms_provider: Literal["africastalking", "local"] = "africastalking"
     africastalking_environment: Literal["sandbox", "production"] = "sandbox"
     africastalking_username: str | None = None
     africastalking_api_key: SecretStr | None = None
@@ -144,7 +145,23 @@ class Settings(BaseSettings):
         api_key = self.africastalking_api_key
         has_any_credentials = username is not None or api_key is not None
 
-        if self.sms_enabled or has_any_credentials:
+        if self.sms_provider == "local" and self.app_env in {
+            "staging",
+            "production",
+        }:
+            raise ValueError("The local SMS provider is limited to development and test")
+
+        if (
+            self.sms_enabled
+            and self.sms_provider == "africastalking"
+            and not has_any_credentials
+        ):
+            raise ValueError(
+                "AFRICASTALKING_USERNAME and AFRICASTALKING_API_KEY "
+                "must be configured together"
+            )
+
+        if has_any_credentials:
             if username is None or api_key is None:
                 raise ValueError(
                     "AFRICASTALKING_USERNAME and AFRICASTALKING_API_KEY "

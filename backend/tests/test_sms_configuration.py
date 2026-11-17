@@ -11,6 +11,7 @@ from app.integrations.africastalking_sms import (
     AfricasTalkingSMSProvider,
     SMSConfigurationError,
 )
+from app.integrations.sms_provider import LocalSMSProvider, build_sms_provider
 
 
 def sms_settings(**overrides: object) -> Settings:
@@ -35,6 +36,30 @@ def test_sms_is_sandboxed_and_disabled_by_default() -> None:
 
     with pytest.raises(SMSConfigurationError, match="disabled"):
         AfricasTalkingSMSProvider.from_settings(settings)
+
+
+def test_local_sms_provider_is_development_only_and_pii_silent(capsys) -> None:
+    """Local mode exercises the outbox without credentials, network, or PII logs."""
+
+    settings = sms_settings(sms_enabled=True, sms_provider="local")
+    provider = build_sms_provider(settings)
+
+    assert isinstance(provider, LocalSMSProvider)
+    result = provider.send("+255712345678", "Private synthetic test message")
+    assert result.status == "local-accepted"
+    assert result.message_id is not None
+    assert result.message_id.startswith("local-")
+    assert capsys.readouterr().out == ""
+
+    with pytest.raises(ValidationError, match="limited to development"):
+        Settings(
+            app_env="production",
+            database_url="postgresql+psycopg://db.example/safarismart",
+            auth_secret_key=secrets.token_urlsafe(48),
+            sms_enabled=True,
+            sms_provider="local",
+            _env_file=None,
+        )
 
 
 @pytest.mark.parametrize(

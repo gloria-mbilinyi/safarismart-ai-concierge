@@ -6,10 +6,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.session import Database
-from app.integrations.africastalking_sms import (
-    AfricasTalkingSMSProvider,
-    SMSConfigurationError,
-)
+from app.integrations.africastalking_sms import SMSConfigurationError
+from app.integrations.sms_provider import build_sms_provider
 from app.services.sms_notifications import SMSNotificationService
 from app.workers.sms_outbox import drain_due_notifications, run_continuously
 
@@ -57,7 +55,7 @@ def main() -> None:
         raise SystemExit("SMS worker database is unavailable") from None
 
     try:
-        provider = AfricasTalkingSMSProvider.from_settings(settings)
+        provider = build_sms_provider(settings)
     except SMSConfigurationError as error:
         database.dispose()
         raise SystemExit(f"SMS worker is not configured: {error}") from None
@@ -77,7 +75,10 @@ def main() -> None:
                 f"unknown={summary.unknown}"
             )
         else:
-            print("SafariSmart SMS outbox worker started.", flush=True)
+            print(
+                f"SafariSmart SMS outbox worker started ({settings.sms_provider}).",
+                flush=True,
+            )
             run_continuously(
                 database.session_factory,
                 service,
