@@ -11,10 +11,10 @@ The labels below deliberately separate code/configuration from executed evidence
 | Area | Status | Evidence or remaining action |
 | --- | --- | --- |
 | Backend automated suite | Verified locally | `193 passed, 1 skipped`; skip is the opt-in PostgreSQL integration test without `TEST_DATABASE_URL` |
-| Frontend unit tests | Verified locally | 4 Vitest files, 13 tests passed |
+| Frontend unit tests | Verified locally | 3 Vitest files, 13 tests passed |
 | TypeScript and production bundle | Verified locally | `npm run build` completed; Vite transformed 2,143 modules |
 | Frontend dependency audit | Verified locally | `npm audit --omit=dev --audit-level=high` reported 0 vulnerabilities during final MVP work |
-| Browser desktop flow | Previously verified locally | Landing/navigation/planner were exercised before the final notification changes; final automated component tests cover the updated acknowledgement |
+| Browser desktop flow | Verified locally | Built single-image UI exercised: five-row catalog, two-turn Zanzibar chat, Zanzibar-only five-day plan, invalid-email validation, and localized booking acknowledgement with actual reference/unavailable channel state |
 | Browser mobile flow | Verified locally | 390px catalog rendered all five destination cards |
 | API health/catalog/planner | Verified locally | Health, five-row catalog, and a five-day grounded planner response exercised |
 | Alembic chain | Verified locally | Migration head checks and isolated migration tests pass in the backend suite |
@@ -22,9 +22,9 @@ The labels below deliberately separate code/configuration from executed evidence
 | Africa's Talking SMS Sandbox | Previously demonstrated by owner | Remote GitHub Actions send reached the Sandbox Simulator; preserve a redacted screenshot/log as submission evidence |
 | Africa's Talking USSD Sandbox | Previously demonstrated by owner | English/Kiswahili `CON`/`END` navigation worked on Sandbox code `*384*34763#`; preserve redacted screenshots |
 | Compose model | YAML verified locally | Compose and workflow YAML parse; Docker executable was unavailable locally |
-| Compose build/smoke | Awaiting final-commit CI | Prior CI built/started PostgreSQL, API, and frontend; Docker remains unavailable locally |
-| Single Marketplace image | Awaiting final-commit CI | Prior CI built `marketplace/Dockerfile`; verify the final commit's container job |
-| PostgreSQL integration | Awaiting final-commit CI | Local test remains opt-in; verify the final commit's isolated PostgreSQL CI job |
+| Compose build/smoke | Verified in GitHub Actions; not locally executed | Commit `2340cc7` built/started PostgreSQL, API, and frontend, then passed web and proxied-health checks; Docker remains unavailable locally |
+| Single Marketplace image | Verified in GitHub Actions; not locally executed | Commit `2340cc7` successfully built `marketplace/Dockerfile` |
+| PostgreSQL integration | Verified in GitHub Actions | Commit `2340cc7` supplied isolated PostgreSQL, applied Alembic, and passed the complete suite with `TEST_DATABASE_URL` |
 | Render + Neon public deployment | Prepared, not performed | Blueprint and runbook are committed; owner account authorization, Neon credentials, sender verification, and public checks remain required |
 | Marketplace publication | Not done | Requires owner approval, registry credentials, image push, listing data, pricing, policies, and form submission |
 | Durable production hosting | Not done | Quick Tunnel/laptop is explicitly temporary and must not be presented as production |
@@ -149,4 +149,4 @@ Until these are complete, describe SafariSmart as a **tested local/Sandbox hacka
 
 ## Go/no-go statement
 
-The MVP is suitable for a local hackathon demonstration when the native startup checks pass and synthetic credentials are ready. Public launch, provider-delivery claims, and Marketplace publication remain **no-go** until the final commit's CI checks and the owner-only account/configuration steps above are complete.
+The MVP is suitable for a local hackathon demonstration when the native startup checks pass and synthetic credentials are ready. Backend/PostgreSQL, frontend, audit, Compose smoke, and single-image CI completed successfully for implementation/documentation commit `2340cc7` on 17 November 2026. Public launch, provider-delivery claims, and Marketplace publication remain **no-go** until the owner-only account/configuration steps above are complete.
