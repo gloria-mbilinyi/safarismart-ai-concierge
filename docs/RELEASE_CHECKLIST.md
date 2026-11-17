@@ -22,9 +22,9 @@ The labels below deliberately separate code/configuration from executed evidence
 | Africa's Talking SMS Sandbox | Previously demonstrated by owner | Remote GitHub Actions send reached the Sandbox Simulator; preserve a redacted screenshot/log as submission evidence |
 | Africa's Talking USSD Sandbox | Previously demonstrated by owner | English/Kiswahili `CON`/`END` navigation worked on Sandbox code `*384*34763#`; preserve redacted screenshots |
 | Compose model | YAML verified locally | Compose and workflow YAML parse; Docker executable was unavailable locally |
-| Compose build/smoke | Configured in CI, not locally executed | Confirm the final `Frontend and Container CI` run before submission |
-| Single Marketplace image | Configured in CI, not locally executed | `marketplace/Dockerfile` build job exists; confirm the final CI job and then test the exact registry image |
-| PostgreSQL integration | Configured in CI | Backend workflow supplies isolated PostgreSQL, runs Alembic, and enables `TEST_DATABASE_URL`; inspect final remote result |
+| Compose build/smoke | Verified in GitHub Actions; not locally executed | Final CI built/started PostgreSQL, API, and frontend, then passed web and proxied-health checks |
+| Single Marketplace image | Verified in GitHub Actions; not locally executed | Final CI successfully built `marketplace/Dockerfile` |
+| PostgreSQL integration | Verified in GitHub Actions | Final Backend CI supplied isolated PostgreSQL, applied Alembic, and passed the complete suite with `TEST_DATABASE_URL` |
 | Marketplace publication | Not done | Requires owner approval, registry credentials, image push, listing data, pricing, policies, and form submission |
 | Durable production hosting | Not done | Quick Tunnel/laptop is explicitly temporary and must not be presented as production |
 
@@ -104,7 +104,7 @@ After the final push:
 1. Open the repository **Actions** tab.
 2. Select the workflow runs for the final commit SHA, not an earlier commit.
 3. Confirm **Backend CI** completed successfully, including migrations and PostgreSQL integration.
-4. Confirm **Frontend and Container CI** completed successfully, including tests, build, audit, Compose smoke, and Marketplace image build.
+4. Confirm **Frontend and Container CI** completed successfully, including tests, build, audit, Compose smoke, and Marketplace image build. The 17 November final-verification run completed successfully for all three jobs.
 5. If a run is queued, record it as queued—not passed—and wait when time permits.
 6. If a job fails, inspect the first failing step, fix the defect, rerun locally where possible, commit, push, and verify the new SHA.
 
@@ -140,4 +140,4 @@ Until these are complete, describe SafariSmart as a **tested local/Sandbox hacka
 
 ## Go/no-go statement
 
-The MVP is suitable for a local hackathon demonstration when the native startup checks pass and synthetic credentials are ready. Marketplace publication and production claims remain **no-go** until the manual items above and the final remote CI checks are complete.
+The MVP is suitable for a local hackathon demonstration when the native startup checks pass and synthetic credentials are ready. Final backend, frontend, PostgreSQL, Compose, and Marketplace-image CI checks completed successfully on 17 November 2026. Marketplace publication and production claims remain **no-go** until the owner-only manual items above are complete.
