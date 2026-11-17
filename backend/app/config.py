@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     africastalking_username: str | None = None
     africastalking_api_key: SecretStr | None = None
     africastalking_sender_id: str | None = None
+    ai_provider: Literal["fallback", "ollama"] = "fallback"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:3b"
+    ollama_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30.0)
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -44,6 +48,26 @@ class Settings(BaseSettings):
             raise ValueError("API_V1_PREFIX must start with '/'")
 
         return value.rstrip("/")
+
+    @field_validator("ollama_base_url")
+    @classmethod
+    def validate_ollama_base_url(cls, value: str) -> str:
+        """Allow only an explicit HTTP(S) endpoint for the local model service."""
+
+        normalized = value.strip().rstrip("/")
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("OLLAMA_BASE_URL must use http:// or https://")
+        return normalized
+
+    @field_validator("ollama_model")
+    @classmethod
+    def validate_ollama_model(cls, value: str) -> str:
+        """Reject blank model identifiers early."""
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("OLLAMA_MODEL cannot be blank")
+        return normalized
 
     @field_validator(
         "auth_secret_key",

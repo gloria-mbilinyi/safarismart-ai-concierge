@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from app.api.router import api_router
 from app.config import Settings, get_settings
 from app.db.session import Database
+from app.integrations.concierge_provider import build_ranking_provider
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.database = database
     application.state.settings = app_settings
+    application.state.concierge_provider = build_ranking_provider(app_settings)
     application.include_router(api_router, prefix=app_settings.api_v1_prefix)
     return application
 
