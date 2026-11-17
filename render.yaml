@@ -3,11 +3,12 @@ services:
     name: safarismart-ai-concierge
     runtime: docker
     plan: free
+    region: frankfurt
     branch: main
+    autoDeployTrigger: checksPass
     dockerContext: .
     dockerfilePath: ./marketplace/Dockerfile
     healthCheckPath: /api/health
-    maxShutdownDelaySeconds: 60
     envVars:
       - key: APP_ENV
         value: production
@@ -24,11 +25,7 @@ services:
       - key: AI_PROVIDER
         value: fallback
       - key: EMAIL_ENABLED
-        value: "true"
-      - key: RESEND_API_KEY
-        sync: false
-      - key: RESEND_FROM_EMAIL
-        sync: false
+        value: "false"
       - key: RESEND_FROM_NAME
         value: SafariSmart AI Concierge
       - key: SMS_ENABLED
