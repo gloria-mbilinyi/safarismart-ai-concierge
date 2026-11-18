@@ -9,7 +9,7 @@ SafariSmart is a bilingual tourism discovery and booking-request MVP built by Gl
 The complete local demo is implemented:
 
 - Responsive React and TypeScript traveller and operator experiences
-- Searchable destination catalog for Serengeti, Ngorongoro, Kilimanjaro, Zanzibar, and Tarangire
+- Searchable destination catalog for Serengeti, Ngorongoro, Kilimanjaro, Zanzibar, and Tarangire with responsive, locally served licensed photography
 - Context-aware English/Kiswahili concierge chat with per-tab history and explicit single-, multi-, or explore-destination planning
 - Optional zero-cost local Ollama ranking with a deterministic, clearly labelled fallback
 - TZS budget context that never invents or estimates prices
@@ -26,6 +26,7 @@ This remains a hackathon prototype. Catalog content is curated reference data. A
 ```text
 backend/                 FastAPI app, migrations, workers, CLIs, and tests
 frontend/                React/TypeScript/Vite web app and tests
+  public/images/         Optimized local destination photography
 database/                Database notes and seed guidance
 docs/                    Architecture, demo, channel, and release runbooks
 marketplace/Dockerfile   Single-image Marketplace build
@@ -35,6 +36,8 @@ compose.yaml             Local web/API/PostgreSQL stack
 ```
 
 See [architecture.md](docs/architecture.md), [render-deployment.md](docs/render-deployment.md), [DEMO.md](docs/DEMO.md), and [RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the implementation, deployment, exact demo flow, and evidence status.
+
+The destination catalog uses ten local WebP derivatives: 640px and 1280px variants for each curated place. Cards choose an appropriate source with `srcset`, lazy-load offscreen images, preserve a 16:9 layout, and show an accessible fallback if an asset fails. Photographer, source, transformation, and Creative Commons details are recorded in [image-credits.md](docs/image-credits.md) and displayed with each photograph.
 
 ## Native local setup
 
