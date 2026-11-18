@@ -1,32 +1,37 @@
 
-name: Build and Push Docker Image
+name: Build and Push SafariSmart Docker Image
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Login to Container Registry
+      - name: Login to Africa's Talking Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ secrets.REGISTRY_HOST }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      - name: Build Docker Image
+      - name: Build SafariSmart Docker Image
         run: |
           docker build \
-            -t registry.africastalking.dev/7btvf/tenderguard-africa:latest .
+            -f marketplace/Dockerfile \
+            -t registry.africastalking.dev/7btvf/safarismart-ai-concierge:latest \
+            .
 
-      - name: Push Docker Image
+      - name: Push SafariSmart Docker Image
         run: |
           docker push \
-            registry.africastalking.dev/7btvf/tenderguard-africa:latest
+            registry.africastalking.dev/7btvf/safarismart-ai-concierge:latest
