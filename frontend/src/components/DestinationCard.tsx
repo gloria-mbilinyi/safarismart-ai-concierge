@@ -1,24 +1,14 @@
-import { ArrowUpRight, MapPin, Mountain, Palmtree, PawPrint, Trees } from "lucide-react";
+import { ArrowUpRight, MapPin } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { categoryLabel } from "../lib/display";
 import type { Destination } from "../types";
-
-const iconByCategory = {
-  beach: Palmtree,
-  conservation_area: Trees,
-  mountain: Mountain,
-  national_park: PawPrint,
-};
+import { DestinationPhoto } from "./DestinationPhoto";
 
 export function DestinationCard({ destination }: { destination: Destination }) {
-  const Icon = iconByCategory[destination.category];
   return (
-    <article className={`destination-card art-${destination.category}`}>
-      <div className="destination-art" aria-hidden="true">
-        <span className="sun-disc" />
-        <Icon size={56} strokeWidth={1.35} />
-      </div>
+    <article className="destination-card">
+      <DestinationPhoto destination={destination} />
       <div className="destination-card-body">
         <div className="eyebrow-row">
           <span className="category-chip">{categoryLabel[destination.category]}</span>
