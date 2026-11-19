@@ -72,7 +72,6 @@ export interface ChatResponse {
     | "greeting"
     | "recommendation"
     | "destination_overview"
-    | "region_overview"
     | "activities"
     | "trip_duration"
     | "comparison"

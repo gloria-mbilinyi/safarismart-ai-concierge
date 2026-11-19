@@ -275,6 +275,8 @@ def classify_intent(
     normalized = message.casefold()
     if is_greeting(normalized):
         return ChatIntent.GREETING
+    if unknown_location:
+        return ChatIntent.UNKNOWN_LOCATION
     if contains_any(normalized, COMPARISON_CUES):
         return ChatIntent.COMPARISON
     if contains_any(normalized, BOOKING_CUES):
@@ -291,8 +293,6 @@ def classify_intent(
         return ChatIntent.RECOMMENDATION
     if explicit_destination_count or has_destination_context:
         return ChatIntent.DESTINATION_OVERVIEW
-    if unknown_location:
-        return ChatIntent.UNKNOWN_LOCATION
     if interests:
         return ChatIntent.RECOMMENDATION
     if contains_any(normalized, OVERVIEW_CUES):

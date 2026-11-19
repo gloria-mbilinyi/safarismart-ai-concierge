@@ -29,7 +29,6 @@ class ChatIntent(StrEnum):
     GREETING = "greeting"
     RECOMMENDATION = "recommendation"
     DESTINATION_OVERVIEW = "destination_overview"
-    REGION_OVERVIEW = "region_overview"
     ACTIVITIES = "activities"
     TRIP_DURATION = "trip_duration"
     COMPARISON = "comparison"

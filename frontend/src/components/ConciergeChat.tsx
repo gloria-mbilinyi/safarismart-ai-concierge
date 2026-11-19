@@ -96,8 +96,8 @@ export function ConciergeChat() {
 
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const welcome = language === "sw"
-    ? "Karibu! Uliza kuhusu mkoa wowote wa Tanzania au mojawapo ya maeneo matano ya booking. Nitatumia taarifa zilizothibitishwa."
-    : "Karibu! Ask about any Tanzanian region or one of five featured booking destinations. I’ll use source-checked guide facts.";
+    ? "Karibu! Uliza kuhusu Serengeti, Ngorongoro, Mlima Kilimanjaro, Zanzibar, au Tarangire."
+    : "Karibu! Ask about Serengeti, Ngorongoro, Mount Kilimanjaro, Zanzibar, or Tarangire.";
 
   return (
     <section className="chat-panel panel" aria-labelledby="concierge-heading">
@@ -134,7 +134,7 @@ export function ConciergeChat() {
         {!messages.length && (
           <div className="chat-bubble assistant welcome-message">
             <Bot size={18} />
-            <div><p>{welcome}</p><small>Try “I want to visit Mwanza.”</small></div>
+            <div><p>{welcome}</p><small>Try “I want to visit Zanzibar.”</small></div>
           </div>
         )}
         {messages.map((message) => (
@@ -159,7 +159,7 @@ export function ConciergeChat() {
         {chatting && (
           <div className="chat-bubble assistant chat-loading" role="status">
             <LoaderCircle className="spin" size={18} />
-            <p>Checking the trusted Tanzania travel guide…</p>
+            <p>Checking the trusted destination catalog…</p>
           </div>
         )}
         {error && <div className="chat-error" role="alert">{error}</div>}

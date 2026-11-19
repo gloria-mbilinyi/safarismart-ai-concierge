@@ -248,7 +248,7 @@ def test_assistant_history_is_not_a_trusted_destination_instruction(
 
     assert payload["intent"] == "activities"
     assert payload["referenced_destinations"] == []
-    assert payload["answer"] == "Which Tanzanian region or destination do you mean?"
+    assert payload["answer"] == "Which catalog destination do you mean?"
 
 
 def test_history_count_and_total_size_are_bounded(client: TestClient) -> None:
