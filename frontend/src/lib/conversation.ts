@@ -12,14 +12,17 @@ export interface ConversationStorage {
 
 const GENERATION_MODES = new Set(["rule_based_fallback", "local_ollama"]);
 const CHAT_INTENTS = new Set([
+  "greeting",
   "recommendation",
   "destination_overview",
+  "region_overview",
   "activities",
   "trip_duration",
   "comparison",
   "budget",
   "booking_guidance",
   "unsupported_fact",
+  "unknown_location",
   "clarification",
 ]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

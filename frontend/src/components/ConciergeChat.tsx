@@ -96,8 +96,8 @@ export function ConciergeChat() {
 
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   const welcome = language === "sw"
-    ? "Karibu! Niambie eneo au aina ya safari unayopenda. Nitajibu kwa kutumia orodha ya SafariSmart."
-    : "Karibu! Tell me a destination or the kind of trip you enjoy. I’ll answer from SafariSmart’s catalog.";
+    ? "Karibu! Uliza kuhusu mkoa wowote wa Tanzania au mojawapo ya maeneo matano ya booking. Nitatumia taarifa zilizothibitishwa."
+    : "Karibu! Ask about any Tanzanian region or one of five featured booking destinations. I’ll use source-checked guide facts.";
 
   return (
     <section className="chat-panel panel" aria-labelledby="concierge-heading">
@@ -105,7 +105,7 @@ export function ConciergeChat() {
         <span className="step-dot"><Bot size={18} /></span>
         <div>
           <h2 id="concierge-heading">Ask the concierge</h2>
-          <p>Continue a real conversation; recent context stays in this browser tab.</p>
+          <p>Explore Tanzania naturally; recent context stays in this browser tab.</p>
         </div>
         <button
           className="clear-chat-button"
@@ -134,20 +134,19 @@ export function ConciergeChat() {
         {!messages.length && (
           <div className="chat-bubble assistant welcome-message">
             <Bot size={18} />
-            <div><p>{welcome}</p><small>Try “I want to visit Zanzibar.”</small></div>
+            <div><p>{welcome}</p><small>Try “I want to visit Mwanza.”</small></div>
           </div>
         )}
         {messages.map((message) => (
-          <div key={message.id} className={`chat-bubble ${message.role}`}>
+          <div
+            key={message.id}
+            className={`chat-bubble ${message.role}`}
+            data-chat-intent={message.role === "assistant" ? message.intent : undefined}
+            data-generation-mode={message.role === "assistant" ? message.generation_mode : undefined}
+          >
             {message.role === "assistant" && <Bot size={18} aria-hidden="true" />}
             <div>
               <p>{message.content}</p>
-              {message.role === "assistant" && message.intent && (
-                <span className="chat-response-meta">
-                  {message.generation_mode === "local_ollama" ? "Local Ollama · " : "Reliable fallback · "}
-                  {message.intent.replaceAll("_", " ")}
-                </span>
-              )}
               {message.safety_notice && <small>{message.safety_notice}</small>}
               {message.booking_destination_id && (
                 <Link className="chat-booking-link" to={`/booking?destination=${message.booking_destination_id}`}>
@@ -160,7 +159,7 @@ export function ConciergeChat() {
         {chatting && (
           <div className="chat-bubble assistant chat-loading" role="status">
             <LoaderCircle className="spin" size={18} />
-            <p>Checking the trusted catalog and conversation context…</p>
+            <p>Checking the trusted Tanzania travel guide…</p>
           </div>
         )}
         {error && <div className="chat-error" role="alert">{error}</div>}

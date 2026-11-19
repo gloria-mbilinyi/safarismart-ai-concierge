@@ -69,14 +69,17 @@ export interface TripPlan {
 export interface ChatResponse {
   generation_mode: "rule_based_fallback" | "local_ollama";
   intent:
+    | "greeting"
     | "recommendation"
     | "destination_overview"
+    | "region_overview"
     | "activities"
     | "trip_duration"
     | "comparison"
     | "budget"
     | "booking_guidance"
     | "unsupported_fact"
+    | "unknown_location"
     | "clarification";
   answer: string;
   referenced_destinations: PlanDestination[];

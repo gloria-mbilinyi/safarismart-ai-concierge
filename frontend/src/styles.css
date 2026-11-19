@@ -253,7 +253,6 @@ legend { margin-bottom: .7rem; color: var(--ink); font-size: .77rem; font-weight
 .chat-bubble.assistant small { display: block; margin-top: .5rem; color: var(--terracotta); }
 .chat-bubble.user { align-self: flex-end; background: var(--sun); color: var(--ink-deep); }
 .welcome-message { max-width: 94%; }
-.chat-response-meta { display: block; margin-top: .5rem; color: #677b70; font-size: .59rem; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
 .chat-booking-link { display: inline-flex; margin-top: .65rem; color: var(--leaf); font-size: .7rem; font-weight: 850; text-decoration: underline; text-underline-offset: 3px; }
 .chat-loading { color: var(--muted); }
 .chat-error { align-self: stretch; padding: .75rem; color: #ffd5ca; background: #6b2f24; font-size: .72rem; line-height: 1.5; }
@@ -466,6 +465,8 @@ legend { margin-bottom: .7rem; color: var(--ink); font-size: .77rem; font-weight
   .chat-heading { display: grid; grid-template-columns: auto 1fr; padding-right: 0; }
   .clear-chat-button { position: static; grid-column: 2; }
   .chat-window { max-height: 460px; }
+  .chat-bubble { max-width: 92%; }
+  .chat-suggestions button { min-height: 44px; }
   .chat-footer-note { display: grid; gap: .3rem; }
   .chat-footer-note p { text-align: left; }
   .planning-mode-grid, .destination-option-grid { grid-template-columns: 1fr; }
@@ -479,6 +480,18 @@ legend { margin-bottom: .7rem; color: var(--ink); font-size: .77rem; font-weight
   .operator-header { align-items: flex-start; display: grid; }
   .operator-header-actions { justify-content: flex-start; }
   .detail-title { align-items: flex-start; }
+}
+
+@media (max-width: 480px) {
+  .chat-toolbar { align-items: stretch; flex-direction: column; gap: .4rem; }
+  .chat-toolbar select { width: 100%; min-height: 44px; }
+  .chat-window { min-height: 320px; max-height: 60vh; padding-right: 0; }
+  .chat-bubble { max-width: 96%; padding: .75rem; font-size: .8rem; }
+  .chat-suggestions { display: grid; }
+  .chat-suggestions button { width: 100%; font-size: .7rem; }
+  .chat-form textarea { min-height: 112px; font-size: 1rem; }
+  .chat-form button { width: 44px; height: 44px; }
+  .mode-note { align-items: flex-start; line-height: 1.45; }
 }
 
 @media (prefers-reduced-motion: reduce) {
