@@ -10,8 +10,8 @@ The complete local demo is implemented:
 
 - Responsive React and TypeScript traveller and operator experiences
 - Searchable destination catalog for Serengeti, Ngorongoro, Kilimanjaro, Zanzibar, and Tarangire with responsive, locally served licensed photography
-- Context-aware English/Kiswahili concierge chat with per-tab history and explicit single-, multi-, or explore-destination planning
-- Optional zero-cost local Ollama ranking with a deterministic, clearly labelled fallback
+- Context-aware English/Kiswahili concierge chat that recognizes all 31 Tanzanian regions while keeping regional discovery separate from the five bookable catalog destinations
+- Optional zero-cost local Ollama ranking with a deterministic fallback and developer-only mode diagnostics
 - TZS budget context that never invents or estimates prices
 - Idempotent public booking requests with consent and contact validation
 - Argon2 operator authentication, signed short-lived tokens, organization isolation, and audited workflow decisions
@@ -35,7 +35,7 @@ compose.yaml             Local web/API/PostgreSQL stack
 .env.example             Safe configuration template
 ```
 
-See [architecture.md](docs/architecture.md), [render-deployment.md](docs/render-deployment.md), [DEMO.md](docs/DEMO.md), and [RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the implementation, deployment, exact demo flow, and evidence status.
+See [architecture.md](docs/architecture.md), [tanzania-regional-knowledge.md](docs/tanzania-regional-knowledge.md), [render-deployment.md](docs/render-deployment.md), [DEMO.md](docs/DEMO.md), and [RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the implementation, regional sources, deployment, exact demo flow, and evidence status.
 
 The destination catalog uses ten local WebP derivatives: 640px and 1280px variants for each curated place. Cards choose an appropriate source with `srcset`, lazy-load offscreen images, preserve a 16:9 layout, and show an accessible fallback if an asset fails. Photographer, source, transformation, and Creative Commons details are recorded in [image-credits.md](docs/image-credits.md) and displayed with each photograph.
 
@@ -113,7 +113,7 @@ It requires an external PostgreSQL `DATABASE_URL` and strong `AUTH_SECRET_KEY`. 
 
 ## Concierge modes
 
-`AI_PROVIDER=fallback` is the default and needs no model, API key, paid API, or network access. It deterministically ranks active catalog rows and labels its response `rule_based_fallback`.
+`AI_PROVIDER=fallback` is the default and needs no model, API key, paid API, or network access. It deterministically handles greetings, recognizes the official 31-region set, answers from source-attributed regional highlights, and ranks active catalog rows. The API retains `rule_based_fallback` as developer diagnostics, but the traveller UI does not expose implementation labels.
 
 For an optional local Ollama service:
 
@@ -123,7 +123,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:3b
 ```
 
-Ollama may rank only known destination slugs. All descriptions, itinerary fields, safety wording, and booking boundaries still come from validated application data. Invalid or unavailable model output falls back safely.
+Ollama may rank or rephrase only known catalog destination facts. Regional facts remain deterministic and source-attributed. All descriptions, itinerary fields, safety wording, and booking boundaries still come from validated application data. Invalid or unavailable model output falls back safely.
 
 ## Email, SMS, and USSD
 
@@ -150,7 +150,7 @@ Africa's Talking posts form-encoded USSD requests to `POST /api/v1/ussd`. The re
 | `GET` | `/api/v1/destinations` | Search/filter active catalog | Public |
 | `GET` | `/api/v1/destinations/{id}` | Destination detail | Public |
 | `POST` | `/api/v1/concierge/plan` | Grounded 1–14 day trip idea | Public |
-| `POST` | `/api/v1/concierge/chat` | Bounded catalog concierge | Public |
+| `POST` | `/api/v1/concierge/chat` | Bounded catalog and Tanzania-region concierge | Public |
 | `POST` | `/api/v1/bookings` | Idempotent pending request | Public submission |
 | `POST` | `/api/v1/ussd` | Africa's Talking read-only menu callback | Public callback |
 | `POST` | `/api/v1/auth/token` | Operator login | Existing users only |
@@ -182,6 +182,8 @@ Most backend tests use isolated SQLite databases. Set `TEST_DATABASE_URL` only t
 - Never commit `.env`, credentials, customer data, tokens, or generated signing material.
 - Staging and production reject missing/weak signing keys, implicit database defaults, debug mode, the local SMS provider, the wrong PostgreSQL driver, and Neon URLs without TLS.
 - Customer booking lookup and actions remain deferred until a verified account or one-time out-of-band challenge is implemented; a reference, email, or phone number is not proof of identity.
+- Regional recognition is travel discovery, not inventory: only the five active catalog records can produce a booking-form target.
+- Regional profiles intentionally omit live hotel prices, availability, opening hours, transport times, and any attraction detail that has not been source-checked.
 - The demo has no live inventory, accommodation/transport catalog, payments, real operator integrations, durable customer sessions, MFA, password reset, or verified delivery-report callback.
 - Public booking and USSD limiters are per API process; multi-instance production should add trusted edge controls and a shared limiter.
 - Render Free notification dispatch is best-effort while the web instance is awake; PostgreSQL retains due jobs during sleep, but a dedicated worker remains the production upgrade.
