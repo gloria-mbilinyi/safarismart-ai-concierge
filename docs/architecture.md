@@ -18,7 +18,6 @@ flowchart LR
     ATUSSD[Africa's Talking USSD] --> API
 
     API --> Catalog[Destination catalog]
-    API --> RegionalGuide[Verified regional guide]
     API --> Concierge[Grounded concierge]
     API --> Booking[Booking service]
     API --> Auth[Operator security]
@@ -41,8 +40,7 @@ flowchart LR
 - **React client:** landing page, catalog, planner/chat, booking form, operator login, and protected dashboard. It never stores operator passwords; the short-lived access token is kept in per-tab `sessionStorage`, removed on sign-out, and never placed in URLs or long-lived `localStorage`.
 - **FastAPI transport:** Pydantic validation, route-level dependencies, CORS allowlist, form parsing, and response serialization.
 - **Catalog service:** active destinations, search/filter/pagination, repeatable seed data, and public reference content.
-- **Concierge service:** deterministic greeting, intent and place handling; bounded recent user context; source-attributed regional discovery; explicit catalog selection; and optional catalog prose/ranking through narrow provider interfaces. It cannot invoke booking actions.
-- **Regional knowledge:** immutable application data for Tanzania's 31 official regions, conservative aliases, statistical-zone context, selected verified tourism highlights, source URLs, and a verification date. It has no database identifier, operator assignment, inventory, or booking authority.
+- **Concierge service:** deterministic greeting and intent handling; bounded recent user context; explicit five-destination catalog selection; bilingual unsupported-location responses; and optional catalog prose/ranking through narrow provider interfaces. It cannot invoke booking actions.
 - **Booking service:** idempotent public submission and the authoritative state machine. It writes state and history atomically.
 - **Operator security:** Argon2 password verification, signed short-lived tokens with issuer/audience/expiry checks, active-account checks, token-version revocation, and organization-scoped resource lookup.
 - **Notification service:** consent-aware bilingual email/SMS templates and a transactional selected-channel outbox. Provider calls happen after the booking transaction commits; no channel fallback is allowed.
@@ -72,7 +70,7 @@ The implemented schema contains:
 | `GET` | `/api/v1/destinations` | Public active catalog search/filter |
 | `GET` | `/api/v1/destinations/{id}` | Public active destination detail |
 | `POST` | `/api/v1/concierge/plan` | Public, validated, catalog-grounded plan |
-| `POST` | `/api/v1/concierge/chat` | Public, bounded catalog or Tanzania-region question |
+| `POST` | `/api/v1/concierge/chat` | Public, bounded five-destination catalog question or unsupported-location fallback |
 | `POST` | `/api/v1/bookings` | Rate-limited public submission; idempotency header required |
 | `POST` | `/api/v1/ussd` | Public Africa's Talking form callback; read-only |
 | `POST` | `/api/v1/auth/token` | Existing operator login; no registration |
@@ -113,13 +111,13 @@ The fallback planner is the default and works offline. It:
 4. Treats TZS budget as planning context, never as a source of price estimates.
 5. Emits a disclaimer that the result is not price, availability, or reservation.
 
-Chat recognizes greeting, recommendation, catalog overview, region overview, activity, duration, comparison, budget, booking-guidance, unsupported-fact, unknown-location, and clarification intents. It resolves the five active catalog destinations first, then the separate official-region guide; a bare `Kilimanjaro` therefore preserves the existing Mount Kilimanjaro catalog behavior. Conservative aliases and one-character spelling tolerance are limited to known region names.
+Chat recognizes greeting, recommendation, catalog overview, activity, duration, comparison, budget, booking-guidance, unsupported-fact, unknown-location, and clarification intents. Destination facts resolve only from the five active catalog rows. Conservative aliases such as `Serengeti`, `Ngorongoro`, and bare `Kilimanjaro` map to those records; no separate place knowledge source is consulted.
 
-The browser retains at most 20 redacted messages in per-tab `sessionStorage`; only the latest eight are returned as bounded context. The server uses known places only from user turns and never treats prior assistant prose as authority. A place named in the current turn overrides history, while pronouns such as “there” and “huko” may use the most recent known user place. A new unknown location suppresses stale context.
+The browser retains at most 20 redacted messages in per-tab `sessionStorage`; only the latest eight are returned as bounded context. The server uses known catalog destinations only from user turns and never treats prior assistant prose as authority. A supported destination named in the current turn overrides history, while pronouns such as “there” and “huko” may use the most recent supported user selection. A clearly named unsupported location suppresses stale context.
 
-Regional responses use only the source-attributed guide. Recognition does not create a `destinations` row, `booking_destination_id`, operator assignment, or booking link. Where a region lacks a reviewed attraction profile, the concierge states that limitation instead of inventing detail. Mutable hotel prices, availability, schedules, opening hours, transport times, and reservations remain unsupported.
+For a clearly named location outside the catalog, the deterministic fallback mentions the extracted name when reliable, states that SafariSmart has no current information for it, lists the five supported destinations, and offers those as the next step. It returns no destination reference or booking identifier and never creates a database row. Mutable hotel prices, availability, schedules, opening hours, transport times, and reservations remain unsupported.
 
-When `AI_PROVIDER=ollama`, the provider receives only allowed catalog destination facts and a safe deterministic draft. Regional answers do not depend on the model. Descriptions, safety wording, prices, availability, and booking authority remain in the application. Unknown entities, invented numbers, malformed output, timeout, or provider failure fall back to the deterministic response and report `rule_based_fallback` in API diagnostics. The public chat does not display model or fallback labels; developer diagnostics remain as response fields and DOM data attributes.
+When `AI_PROVIDER=ollama`, the provider receives only allowed catalog destination facts and a safe deterministic draft. Unsupported-location responses do not depend on the model. Descriptions, safety wording, prices, availability, and booking authority remain in the application. Unknown entities, invented numbers, malformed output, timeout, or provider failure fall back to the deterministic response and report `rule_based_fallback` in API diagnostics. The public chat does not display model or fallback labels; developer diagnostics remain as response fields and DOM data attributes.
 
 ## Notification delivery architecture
 
@@ -184,7 +182,7 @@ Local verification includes the isolated backend suite, frontend tests/typecheck
 - No live inventory, real operator partnership, accommodation/restaurant/transport data, payment, or external reservation API
 - No customer authentication, lookup, quote acceptance, cancellation, or status history API
 - No server-side durable chat history or cross-channel customer identity; browser chat history is per tab only
-- Regional profiles are deliberately concise and not a live accommodation, transport, event, weather, or attraction-operations feed
+- No destination facts outside the five active catalog records and no live accommodation, transport, event, weather, or attraction-operations feed
 - No production operator administration, password reset, MFA, or automated signing-key rotation
 - No authenticated delivery-report or inbound SMS callback
 - Best-effort in-process notification dispatch on sleeping free hosting; no dedicated worker monitoring
