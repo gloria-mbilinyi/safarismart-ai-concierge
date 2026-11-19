@@ -1,4 +1,4 @@
-"""Bounded bilingual intent recognition for catalog-grounded chat."""
+"""Bounded bilingual intent recognition for Tanzania travel chat."""
 
 from __future__ import annotations
 
@@ -18,6 +18,19 @@ INJECTION_MARKERS = (
     "bypass",
     "jailbreak",
 )
+
+GREETING_CUES = {
+    "hello",
+    "hi",
+    "hey",
+    "jambo",
+    "habari",
+    "mambo",
+    "shikamoo",
+    "good morning",
+    "good afternoon",
+    "good evening",
+}
 
 INTEREST_KEYWORDS: dict[TravelInterest, tuple[str, ...]] = {
     TravelInterest.WILDLIFE: (
@@ -210,6 +223,21 @@ def has_prompt_injection(message: str) -> bool:
     return contains_any(normalized, INJECTION_MARKERS)
 
 
+def is_greeting(message: str) -> bool:
+    """Recognize a greeting-only turn without swallowing a travel question."""
+
+    normalized = re.sub(r"[^a-z\s]", " ", message.casefold())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    polite_suffixes = ("there", "safarismart", "please", "tafadhali")
+    if normalized in GREETING_CUES:
+        return True
+    return any(
+        normalized == f"{greeting} {suffix}"
+        for greeting in GREETING_CUES
+        for suffix in polite_suffixes
+    )
+
+
 def infer_interests(message: str) -> list[TravelInterest]:
     """Return only supported interest labels found through known keywords."""
 
@@ -240,10 +268,13 @@ def classify_intent(
     explicit_destination_count: int,
     has_destination_context: bool,
     interests: list[TravelInterest],
+    unknown_location: bool = False,
 ) -> ChatIntent:
     """Choose one supported intent in deterministic priority order."""
 
     normalized = message.casefold()
+    if is_greeting(normalized):
+        return ChatIntent.GREETING
     if contains_any(normalized, COMPARISON_CUES):
         return ChatIntent.COMPARISON
     if contains_any(normalized, BOOKING_CUES):
@@ -252,14 +283,18 @@ def classify_intent(
         return ChatIntent.ACTIVITIES
     if contains_any(normalized, DURATION_CUES) or extract_requested_days(normalized):
         return ChatIntent.TRIP_DURATION
-    if contains_any(normalized, BUDGET_CUES):
-        return ChatIntent.BUDGET
     if contains_any(normalized, UNSUPPORTED_FACT_CUES):
         return ChatIntent.UNSUPPORTED_FACT
-    if interests or contains_any(normalized, RECOMMENDATION_CUES):
+    if contains_any(normalized, BUDGET_CUES):
+        return ChatIntent.BUDGET
+    if contains_any(normalized, RECOMMENDATION_CUES):
         return ChatIntent.RECOMMENDATION
     if explicit_destination_count or has_destination_context:
         return ChatIntent.DESTINATION_OVERVIEW
+    if unknown_location:
+        return ChatIntent.UNKNOWN_LOCATION
+    if interests:
+        return ChatIntent.RECOMMENDATION
     if contains_any(normalized, OVERVIEW_CUES):
-        return ChatIntent.UNSUPPORTED_FACT
+        return ChatIntent.UNKNOWN_LOCATION
     return ChatIntent.CLARIFICATION

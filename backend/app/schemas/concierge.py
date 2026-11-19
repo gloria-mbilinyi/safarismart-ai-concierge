@@ -26,14 +26,17 @@ class ChatRole(StrEnum):
 class ChatIntent(StrEnum):
     """Transparent intent labels used by the deterministic concierge."""
 
+    GREETING = "greeting"
     RECOMMENDATION = "recommendation"
     DESTINATION_OVERVIEW = "destination_overview"
+    REGION_OVERVIEW = "region_overview"
     ACTIVITIES = "activities"
     TRIP_DURATION = "trip_duration"
     COMPARISON = "comparison"
     BUDGET = "budget"
     BOOKING_GUIDANCE = "booking_guidance"
     UNSUPPORTED_FACT = "unsupported_fact"
+    UNKNOWN_LOCATION = "unknown_location"
     CLARIFICATION = "clarification"
 
 

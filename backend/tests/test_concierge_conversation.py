@@ -205,10 +205,10 @@ def test_budget_and_unsupported_facts_acknowledge_catalog_limits(
     assert budget["intent"] == "budget"
     assert "does not hold verified prices" in budget["answer"]
     assert weather["intent"] == "unsupported_fact"
-    assert "does not contain that verified information" in weather["answer"]
-    assert unknown["intent"] == "unsupported_fact"
+    assert "does not contain that verified live information" in weather["answer"]
+    assert unknown["intent"] == "unknown_location"
     assert unknown["referenced_destinations"] == []
-    assert "will not guess" in unknown["answer"]
+    assert "will not invent details" in unknown["answer"]
 
 
 def test_swahili_follow_up_retains_destination_context(
@@ -248,7 +248,7 @@ def test_assistant_history_is_not_a_trusted_destination_instruction(
 
     assert payload["intent"] == "activities"
     assert payload["referenced_destinations"] == []
-    assert payload["answer"] == "Which catalog destination do you mean?"
+    assert payload["answer"] == "Which Tanzanian region or destination do you mean?"
 
 
 def test_history_count_and_total_size_are_bounded(client: TestClient) -> None:

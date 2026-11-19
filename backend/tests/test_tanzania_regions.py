@@ -16,6 +16,10 @@ def test_knowledge_layer_contains_every_official_tanzania_region_once() -> None:
     assert len({region.name for region in TANZANIA_REGIONS}) == 31
     assert all(NBS_REGION_SOURCE in region.source_urls for region in TANZANIA_REGIONS)
     assert all(region.verified_on.isoformat() == "2026-11-19" for region in TANZANIA_REGIONS)
+    assert all(
+        find_region_mentions(region.name)[0].slug == region.slug
+        for region in TANZANIA_REGIONS
+    )
 
 
 def test_required_regions_and_verified_highlights_are_present() -> None:
